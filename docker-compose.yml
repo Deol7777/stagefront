@@ -1,0 +1,158 @@
+# Local infra for the flash-sale ticketing saga platform.
+# Brings up: Kafka (KRaft, no ZooKeeper), 4x Postgres (db-per-service),
+# Redis, schema registry, and the observability stack (OTel + Prometheus + Grafana).
+# Service apps are NOT here yet — added once their modules exist.
+
+name: ticketing
+
+services:
+  # ---- Kafka (official Apache image, KRaft mode, no ZooKeeper) ----
+  # NOTE: switched off bitnami/kafka — Bitnami removed its free Docker Hub
+  # tags in late 2025 (moved to the paid 'bitnamisecure' / 'bitnamilegacy').
+  # The official apache/kafka image uses raw env vars named KAFKA_* (the
+  # server.properties keys), NOT bitnami's KAFKA_CFG_* convention.
+  kafka:
+    image: apache/kafka:3.9.1
+    ports:
+      - "9092:9092"   # external listener for host apps
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: "controller,broker"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_LISTENERS: "PLAINTEXT://:9094,CONTROLLER://:9093,EXTERNAL://:9092"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9094,EXTERNAL://localhost:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"   # persisted on the named volume below
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      # CLI tools live at /opt/kafka/bin and are on PATH in the apache image.
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9094 --list || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  # ---- Schema registry (free, non-Confluent) ----
+  schema-registry:
+    image: apicurio/apicurio-registry-mem:2.5.11.Final
+    ports:
+      - "8081:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  # ---- Postgres: one per service (database-per-service) ----
+  postgres-order:
+    image: postgres:16
+    ports: ["5432:5432"]
+    environment:
+      POSTGRES_DB: order_db
+      POSTGRES_USER: order
+      POSTGRES_PASSWORD: changeme
+    volumes:
+      - pg-order:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U order -d order_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres-inventory:
+    image: postgres:16
+    ports: ["5433:5432"]
+    environment:
+      POSTGRES_DB: inventory_db
+      POSTGRES_USER: inventory
+      POSTGRES_PASSWORD: changeme
+    volumes:
+      - pg-inventory:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inventory -d inventory_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres-payment:
+    image: postgres:16
+    ports: ["5434:5432"]
+    environment:
+      POSTGRES_DB: payment_db
+      POSTGRES_USER: payment
+      POSTGRES_PASSWORD: changeme
+    volumes:
+      - pg-payment:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payment -d payment_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres-notification:
+    image: postgres:16
+    ports: ["5435:5432"]
+    environment:
+      POSTGRES_DB: notification_db
+      POSTGRES_USER: notification
+      POSTGRES_PASSWORD: changeme
+    volumes:
+      - pg-notification:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notification -d notification_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---- Redis (cache-aside + distributed lock) ----
+  redis:
+    image: redis:7
+    ports: ["6379:6379"]
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---- Observability ----
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.103.1
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./infra/observability/otel-collector-config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    depends_on:
+      - prometheus
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    volumes:
+      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports: ["9090:9090"]
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    ports: ["3000:3000"]
+    depends_on:
+      - prometheus
+
+volumes:
+  kafka-data:
+  pg-order:
+  pg-inventory:
+  pg-payment:
+  pg-notification:
+  redis-data:
+  grafana-data:

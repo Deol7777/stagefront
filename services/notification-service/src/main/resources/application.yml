@@ -1,0 +1,13 @@
+# notification-service config (skeleton). Kafka consumer settings added later.
+spring:
+  application:
+    name: notification-service
+
+server:
+  port: 8084
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus

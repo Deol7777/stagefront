@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      ORDER-SERVICE: accepts ticket orders, owns the order lifecycle.
+      Spring Boot application module. Inherits versions from the parent.
+      relativePath points up two levels (services/order-service -> root).
+    -->
+    <parent>
+        <groupId>com.ticketing</groupId>
+        <artifactId>ticketing-platform</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>order-service</artifactId>
+    <name>order-service</name>
+    <description>Accepts ticket orders; owns order lifecycle</description>
+
+    <dependencies>
+        <!-- Shared event contracts (this is why contracts builds first). -->
+        <dependency>
+            <groupId>com.ticketing</groupId>
+            <artifactId>contracts</artifactId>
+            <version>0.0.1-SNAPSHOT</version>
+        </dependency>
+
+        <!-- Web: REST endpoints (place order, read order status for the dashboard). -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- Actuator: health + /actuator/prometheus metrics endpoint (observability). -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!--
+          FUTURE deps (added when those features are built — listed here so the
+          roadmap is visible):
+            spring-boot-starter-data-jpa   + postgresql        (order DB + outbox)
+            spring-kafka                                         (produce/consume events)
+            spring-boot-starter-data-redis                       (cache / lock — inventory mainly)
+            io.github.resilience4j:resilience4j-spring-boot3      (circuit breaker, retry)
+            io.micrometer:micrometer-tracing-bridge-otel         (distributed tracing)
+            io.micrometer:micrometer-registry-prometheus         (metrics export)
+        -->
+
+        <!-- Test scope: JUnit, Spring test, etc. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Repackages the jar into an executable fat-jar and enables `mvn spring-boot:run`.
+                 Version/config inherited from the parent's pluginManagement. -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

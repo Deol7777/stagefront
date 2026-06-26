@@ -1,0 +1,37 @@
+# Prometheus scrape config. Service jobs added as each service exposes /actuator/prometheus.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # OTel collector's own metrics + anything it exports via Prometheus exporter.
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:8889"]
+
+  # ---- Service jobs (placeholders — uncomment once services run) ----
+  # - job_name: order-service
+  #   metrics_path: /actuator/prometheus
+  #   static_configs:
+  #     - targets: ["order-service:8080"]
+  # - job_name: inventory-service
+  #   metrics_path: /actuator/prometheus
+  #   static_configs:
+  #     - targets: ["inventory-service:8080"]
+  # - job_name: payment-service
+  #   metrics_path: /actuator/prometheus
+  #   static_configs:
+  #     - targets: ["payment-service:8080"]
+  # - job_name: notification-service
+  #   metrics_path: /actuator/prometheus
+  #   static_configs:
+  #     - targets: ["notification-service:8080"]
+
+  # Kafka consumer-group lag — wire a kafka-exporter here later for the lag panel.
+  # - job_name: kafka-exporter
+  #   static_configs:
+  #     - targets: ["kafka-exporter:9308"]

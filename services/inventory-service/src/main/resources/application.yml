@@ -1,0 +1,13 @@
+# inventory-service config (skeleton). Datasource/Kafka/Redis added later.
+spring:
+  application:
+    name: inventory-service
+
+server:
+  port: 8082
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus

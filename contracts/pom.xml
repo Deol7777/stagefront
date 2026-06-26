@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      CONTRACTS module: the shared event types (the wire contract from
+      docs/events.md, expressed in Java). Every service depends on this so all
+      services serialize/deserialize the SAME event shapes. Changing an event
+      here is changing the contract — bump schemaVersion (see docs/events.md).
+
+      This is a plain library jar (packaging=jar, the default) — NOT a Spring
+      Boot app, so no spring-boot-maven-plugin and no main class.
+    -->
+    <parent>
+        <groupId>com.ticketing</groupId>
+        <artifactId>ticketing-platform</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>contracts</artifactId>
+    <name>contracts</name>
+    <description>Shared Kafka event contracts (the source-of-truth event shapes)</description>
+
+    <dependencies>
+        <!-- Jackson annotations only: lets us annotate event POJOs for JSON
+             (de)serialization without dragging in the whole web stack.
+             Version comes from the Spring Boot BOM (no <version> needed). -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
+        </dependency>
+    </dependencies>
+
+</project>

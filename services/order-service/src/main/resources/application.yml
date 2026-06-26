@@ -1,0 +1,15 @@
+# order-service config (skeleton).
+# Real datasource / Kafka / Redis settings are added when those features land.
+spring:
+  application:
+    name: order-service
+
+server:
+  port: 8081   # order=8081, inventory=8082, payment=8083, notification=8084
+
+# Expose health + Prometheus scrape endpoint for the observability stack.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus

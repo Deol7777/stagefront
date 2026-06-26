@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      PARENT (aggregator + dependency manager) for the whole platform.
+
+      Two jobs this POM does:
+        1. AGGREGATOR  — lists <modules>, so one `mvn` build at the root builds
+                         every module in the right order (the "reactor").
+        2. PARENT      — child modules inherit shared config (Java version,
+                         plugin versions) and, via <dependencyManagement>,
+                         a single source of truth for dependency VERSIONS.
+
+      packaging=pom => this module produces no jar; it only coordinates.
+    -->
+    <groupId>com.ticketing</groupId>
+    <artifactId>ticketing-platform</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <packaging>pom</packaging>
+    <name>flash-sale-ticketing-platform</name>
+    <description>Event-driven flash-sale ticketing saga platform (parent)</description>
+
+    <!--
+      We inherit from spring-boot-starter-parent. That gives us a curated BOM:
+      hundreds of dependency versions that are tested to work together, plus
+      sensible plugin defaults. We do NOT have to pin Spring/Kafka/etc versions
+      ourselves — Boot's BOM does it. We override Java version below.
+    -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.6</version>
+        <relativePath/> <!-- empty => resolve Boot parent from the repository, not a local path -->
+    </parent>
+
+    <!-- The modules the reactor will build. Order doesn't matter here — Maven
+         topologically sorts by inter-module dependencies (contracts builds first
+         because the services depend on it). -->
+    <modules>
+        <module>contracts</module>
+        <module>services/order-service</module>
+        <module>services/inventory-service</module>
+        <module>services/payment-service</module>
+        <module>services/notification-service</module>
+    </modules>
+
+    <properties>
+        <java.version>21</java.version>                       <!-- Boot reads this to set the compiler release -->
+        <maven.compiler.release>21</maven.compiler.release>   <!-- explicit: compile to Java 21 bytecode even on a newer JDK -->
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <!-- Versions for deps NOT managed by the Spring Boot BOM. Bumped in one place. -->
+        <resilience4j.version>2.2.0</resilience4j.version>
+    </properties>
+
+    <!--
+      dependencyManagement = a version catalog, NOT actual dependencies.
+      Declaring something here does not add it to any module. It only says
+      "IF a module asks for this artifact, use THIS version (and these
+      transitive excludes)". Each module then lists the deps it needs in its
+      own <dependencies> WITHOUT a <version>. Keeps versions consistent.
+    -->
+    <dependencyManagement>
+        <dependencies>
+            <!-- Resilience4j (circuit breakers, retry/backoff) — its own BOM aligns
+                 all resilience4j-* modules to one version. -->
+            <dependency>
+                <groupId>io.github.resilience4j</groupId>
+                <artifactId>resilience4j-bom</artifactId>
+                <version>${resilience4j.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <!-- pluginManagement (not plugins): version/config the spring-boot plugin
+             for any child that uses it, without forcing it onto contracts (a plain jar). -->
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+
+</project>
