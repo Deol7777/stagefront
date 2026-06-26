@@ -1,15 +1,13 @@
 /**
  * Shared Kafka event contracts for the ticketing platform.
  *
- * <p>This package will hold the Java representations of every event in
- * {@code docs/events.md} (OrderPlaced, SeatReserved, PaymentAuthorized, ...),
- * plus the common envelope (eventId, eventType, schemaVersion, occurredAt,
- * traceId). It is shared by all services so producers and consumers agree on
- * the exact wire shape.
+ * <p>Holds the shared building blocks: {@link com.ticketing.contracts.EventEnvelope}
+ * (the common wire wrapper), {@link com.ticketing.contracts.Money} (value object),
+ * and {@link com.ticketing.contracts.Topics} (Kafka topic names). The event
+ * payloads themselves live in the {@code events} sub-package, with
+ * {@code EventPayload} (sealed) and {@code EventType} (the registry).
  *
- * <p>Rule: this package IS the contract. Change a shape here only alongside a
+ * <p>Rule: this is the contract. Change a shape only alongside a
  * {@code schemaVersion} bump and an update to {@code docs/events.md}.
- *
- * <p>Currently empty — event types are added in the events-implementation step.
  */
 package com.ticketing.contracts;
