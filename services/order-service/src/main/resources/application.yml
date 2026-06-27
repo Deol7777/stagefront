@@ -1,15 +1,52 @@
-# order-service config (skeleton).
-# Real datasource / Kafka / Redis settings are added when those features land.
+# order-service config.
 spring:
   application:
     name: order-service
 
-server:
-  port: 8081   # order=8081, inventory=8082, payment=8083, notification=8084
+  # --- Postgres (order_db). Defaults match docker-compose; override via env/.env. ---
+  datasource:
+    url: ${ORDER_DB_URL:jdbc:postgresql://localhost:5432/order_db}
+    username: ${ORDER_DB_USER:order}
+    password: ${ORDER_DB_PASSWORD:changeme}
 
-# Expose health + Prometheus scrape endpoint for the observability stack.
+  jpa:
+    hibernate:
+      # validate (not update/create): Flyway owns the schema; Hibernate only
+      # checks the entities match the migrated tables. Catches drift early.
+      ddl-auto: validate
+    open-in-view: false      # no lazy-loading outside the service layer
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: false          # flip to true to watch SQL while learning
+
+  # Flyway runs db/migration/V*.sql on startup, before the app serves traffic.
+  flyway:
+    enabled: true
+
+  # --- Kafka producer (the outbox relay uses this). ---
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      # We store the event already-serialized as a JSON string in the outbox,
+      # so the relay just sends strings. Key = partition key (orderId).
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all            # wait for all in-sync replicas — don't lose a published event
+      properties:
+        enable.idempotence: true   # broker dedups producer retries (no dup from retry)
+
+server:
+  port: 8081
+
 management:
   endpoints:
     web:
       exposure:
         include: health,info,prometheus
+
+# How often the outbox relay polls for unpublished rows (ms).
+outbox:
+  relay:
+    poll-ms: 1000
+    batch-size: 100

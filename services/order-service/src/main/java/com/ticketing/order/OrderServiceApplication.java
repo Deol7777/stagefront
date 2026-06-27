@@ -2,6 +2,7 @@ package com.ticketing.order;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Entry point for order-service.
@@ -10,10 +11,10 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * orders over REST, then drives the saga by producing OrderPlaced and reacting
  * to PaymentAuthorized / PaymentDeclined / SeatReservationFailed events.
  *
- * <p>Skeleton only right now: boots an empty Spring context with web + actuator.
- * Persistence, outbox, Kafka, and saga handlers are added in later steps.
+ * <p>{@code @EnableScheduling} turns on the timer that drives the outbox relay.
  */
 @SpringBootApplication // = @Configuration + @EnableAutoConfiguration + @ComponentScan
+@EnableScheduling
 public class OrderServiceApplication {
 
     public static void main(String[] args) {

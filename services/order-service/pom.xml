@@ -40,11 +40,35 @@
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
+        <!-- JPA + Postgres: the order DB and the outbox table. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Flyway: versioned SQL migrations own the schema (not Hibernate ddl-auto). -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+
+        <!-- Kafka: the outbox relay publishes events here. -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
+        </dependency>
+
         <!--
-          FUTURE deps (added when those features are built — listed here so the
-          roadmap is visible):
-            spring-boot-starter-data-jpa   + postgresql        (order DB + outbox)
-            spring-kafka                                         (produce/consume events)
+          FUTURE deps (added when those features are built):
             spring-boot-starter-data-redis                       (cache / lock — inventory mainly)
             io.github.resilience4j:resilience4j-spring-boot3      (circuit breaker, retry)
             io.micrometer:micrometer-tracing-bridge-otel         (distributed tracing)
