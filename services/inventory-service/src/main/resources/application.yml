@@ -1,7 +1,42 @@
-# inventory-service config (skeleton). Datasource/Kafka/Redis added later.
+# inventory-service config.
 spring:
   application:
     name: inventory-service
+
+  # --- Postgres (inventory_db on :5433). ---
+  datasource:
+    url: ${INVENTORY_DB_URL:jdbc:postgresql://localhost:5433/inventory_db}
+    username: ${INVENTORY_DB_USER:inventory}
+    password: ${INVENTORY_DB_PASSWORD:changeme}
+  jpa:
+    hibernate:
+      ddl-auto: validate     # Flyway owns the schema
+    open-in-view: false
+  flyway:
+    enabled: true
+
+  # --- Redis (distributed lock). ---
+  data:
+    redis:
+      url: ${REDIS_URL:redis://localhost:6379}
+
+  # --- Kafka ---
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: inventory-service          # the consumer group (parallelism + offset tracking)
+      auto-offset-reset: earliest          # first run: read the topic from the start
+      enable-auto-commit: false            # Spring commits offsets after successful handling
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:                              # outbox relay + DLQ publisher
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+    listener:
+      ack-mode: record                     # commit offset after each record's listener returns
 
 server:
   port: 8082
@@ -11,3 +46,14 @@ management:
     web:
       exposure:
         include: health,info,prometheus
+
+# Outbox relay cadence.
+outbox:
+  relay:
+    poll-ms: 1000
+    batch-size: 100
+
+# Seat lock time-to-live (ms): a crashed holder can't lock a seat forever.
+seat:
+  lock:
+    ttl-ms: 5000

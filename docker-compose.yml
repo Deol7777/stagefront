@@ -25,6 +25,12 @@ services:
       KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
       KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      # Single-broker: internal topics must use RF=1 or they can't be created
+      # (defaults are 3). Without this, __consumer_offsets never forms and ALL
+      # consumer groups hang on FIND_COORDINATOR — no group consumer gets data.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
       KAFKA_LOG_DIRS: "/var/lib/kafka/data"   # persisted on the named volume below
     volumes:
       - kafka-data:/var/lib/kafka/data
