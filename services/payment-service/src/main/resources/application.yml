@@ -1,7 +1,37 @@
-# payment-service config (skeleton). Datasource/Kafka added later.
+# payment-service config.
 spring:
   application:
     name: payment-service
+
+  # --- Postgres (payment_db on :5434). ---
+  datasource:
+    url: ${PAYMENT_DB_URL:jdbc:postgresql://localhost:5434/payment_db}
+    username: ${PAYMENT_DB_USER:payment}
+    password: ${PAYMENT_DB_PASSWORD:changeme}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+
+  # --- Kafka ---
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: payment-service
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+    listener:
+      ack-mode: record
 
 server:
   port: 8083
@@ -11,3 +41,14 @@ management:
     web:
       exposure:
         include: health,info,prometheus
+
+outbox:
+  relay:
+    poll-ms: 1000
+    batch-size: 100
+
+# Payment decision rule (placeholder for real gateway): decline any charge whose
+# amount is strictly greater than this. Default high so normal orders authorize;
+# order something pricey to exercise the decline → compensation path.
+payment:
+  decline-above: 1000.00

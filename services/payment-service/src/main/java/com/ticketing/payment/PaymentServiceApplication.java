@@ -2,6 +2,7 @@ package com.ticketing.payment;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Entry point for payment-service.
@@ -11,9 +12,10 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * order is cancelled. A fault target for the chaos demos (force a decline
  * mid-saga to prove compensation works).
  *
- * <p>Skeleton only: empty context with web + actuator for now.
+ * <p>{@code @EnableScheduling} drives the outbox relay.
  */
 @SpringBootApplication
+@EnableScheduling
 public class PaymentServiceApplication {
 
     public static void main(String[] args) {
