@@ -24,7 +24,7 @@ spring:
   flyway:
     enabled: true
 
-  # --- Kafka producer (the outbox relay uses this). ---
+  # --- Kafka: the outbox relay produces; saga listeners consume. ---
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     producer:
@@ -35,6 +35,14 @@ spring:
       acks: all            # wait for all in-sync replicas — don't lose a published event
       properties:
         enable.idempotence: true   # broker dedups producer retries (no dup from retry)
+    consumer:
+      group-id: order-service       # saga listeners (payment outcomes, reservation failures)
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: record
 
 server:
   port: 8081

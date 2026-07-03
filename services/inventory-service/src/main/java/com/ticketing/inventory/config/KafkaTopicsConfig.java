@@ -31,4 +31,20 @@ public class KafkaTopicsConfig {
     public NewTopic ordersPlacedDlqTopic() {
         return TopicBuilder.name(Topics.dlq(Topics.ORDERS_PLACED)).partitions(3).replicas(1).build();
     }
+
+    // DLQs for the compensation/finalization consumers.
+    @Bean
+    public NewTopic paymentsDeclinedDlqTopic() {
+        return TopicBuilder.name(Topics.dlq(Topics.PAYMENTS_DECLINED)).partitions(3).replicas(1).build();
+    }
+
+    @Bean
+    public NewTopic ordersCancelledDlqTopic() {
+        return TopicBuilder.name(Topics.dlq(Topics.ORDERS_CANCELLED)).partitions(3).replicas(1).build();
+    }
+
+    @Bean
+    public NewTopic ordersConfirmedDlqTopic() {
+        return TopicBuilder.name(Topics.dlq(Topics.ORDERS_CONFIRMED)).partitions(3).replicas(1).build();
+    }
 }

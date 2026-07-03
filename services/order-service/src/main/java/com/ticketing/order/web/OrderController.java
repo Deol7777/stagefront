@@ -1,5 +1,6 @@
 package com.ticketing.order.web;
 
+import com.ticketing.order.app.OrderSagaService;
 import com.ticketing.order.app.OrderService;
 import com.ticketing.order.app.PlaceOrderRequest;
 import com.ticketing.order.domain.OrderEntity;
@@ -26,10 +27,12 @@ import java.util.Map;
 public class OrderController {
 
     private final OrderService orderService;
+    private final OrderSagaService sagaService;
     private final OrderRepository orders;
 
-    public OrderController(OrderService orderService, OrderRepository orders) {
+    public OrderController(OrderService orderService, OrderSagaService sagaService, OrderRepository orders) {
         this.orderService = orderService;
+        this.sagaService = sagaService;
         this.orders = orders;
     }
 
@@ -54,5 +57,21 @@ public class OrderController {
     @GetMapping
     public List<OrderEntity> list() {
         return orders.findAll();
+    }
+
+    /**
+     * POST /api/orders/{id}/cancel — request cancellation. Works even on a
+     * CONFIRMED (paid) order, which kicks off the refund compensation: emits
+     * OrderCancelled → payment-service refunds → inventory releases the seat.
+     */
+    @PostMapping("/{id}/cancel")
+    public ResponseEntity<Map<String, String>> cancel(@PathVariable String id) {
+        boolean cancelled = sagaService.requestCancel(id, "USER_REQUESTED");
+        if (cancelled) {
+            return ResponseEntity.accepted().body(Map.of("orderId", id, "status", "CANCELLING"));
+        }
+        // Not found, or already cancelled — either way nothing to do.
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("orderId", id, "status", "NOT_CANCELLABLE"));
     }
 }

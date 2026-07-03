@@ -53,4 +53,18 @@ public class SeatEntity {
         this.reservationId = reservationId;
         this.updatedAt = when;
     }
+
+    /** Compensation: free the seat back to AVAILABLE (order cancelled / payment declined). */
+    public void release(Instant when) {
+        this.status = SeatStatus.AVAILABLE;
+        this.reservedByOrder = null;
+        this.reservationId = null;
+        this.updatedAt = when;
+    }
+
+    /** Finalize: the order confirmed, the seat is now permanently SOLD. */
+    public void markSold(Instant when) {
+        this.status = SeatStatus.SOLD;
+        this.updatedAt = when;
+    }
 }

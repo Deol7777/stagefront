@@ -51,7 +51,8 @@ public class ReservationService {
     @Transactional
     public void handle(EventEnvelope<OrderPlaced> envelope) {
         OrderPlaced order = envelope.payload();
-        String dedupKey = order.dedupKey();   // = orderId
+        // Namespaced dedup key so different event types sharing an id never collide.
+        String dedupKey = envelope.eventType() + "#" + order.dedupKey();
 
         // --- Idempotency gate: skip if we've already handled this event. ---
         if (processed.existsById(dedupKey)) {

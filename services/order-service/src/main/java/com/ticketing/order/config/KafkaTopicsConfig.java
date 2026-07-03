@@ -25,4 +25,31 @@ public class KafkaTopicsConfig {
                 .replicas(1)
                 .build();
     }
+
+    // Terminal saga events this service produces.
+    @Bean
+    public NewTopic ordersConfirmedTopic() {
+        return TopicBuilder.name(Topics.ORDERS_CONFIRMED).partitions(3).replicas(1).build();
+    }
+
+    @Bean
+    public NewTopic ordersCancelledTopic() {
+        return TopicBuilder.name(Topics.ORDERS_CANCELLED).partitions(3).replicas(1).build();
+    }
+
+    // DLQs for the topics this service consumes (saga outcomes).
+    @Bean
+    public NewTopic paymentsAuthorizedDlq() {
+        return TopicBuilder.name(Topics.dlq(Topics.PAYMENTS_AUTHORIZED)).partitions(3).replicas(1).build();
+    }
+
+    @Bean
+    public NewTopic paymentsDeclinedDlq() {
+        return TopicBuilder.name(Topics.dlq(Topics.PAYMENTS_DECLINED)).partitions(3).replicas(1).build();
+    }
+
+    @Bean
+    public NewTopic reservationFailedDlq() {
+        return TopicBuilder.name(Topics.dlq(Topics.INVENTORY_RESERVATION_FAILED)).partitions(3).replicas(1).build();
+    }
 }
