@@ -1,7 +1,35 @@
-# notification-service config (skeleton). Kafka consumer settings added later.
+# notification-service config.
 spring:
   application:
     name: notification-service
+
+  # --- Postgres (notification_db on :5435). ---
+  datasource:
+    url: ${NOTIFICATION_DB_URL:jdbc:postgresql://localhost:5435/notification_db}
+    username: ${NOTIFICATION_DB_USER:notification}
+    password: ${NOTIFICATION_DB_PASSWORD:changeme}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+
+  # --- Kafka (consumer only — this service produces nothing). ---
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: notification-service
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    # A KafkaTemplate is still needed for the DLQ publisher (error handler).
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    listener:
+      ack-mode: record
 
 server:
   port: 8084

@@ -1,7 +1,7 @@
 # Flash-Sale Ticketing Saga Platform — task runner
 # Infra targets use docker-compose; build/run targets use the Maven wrapper.
 
-.PHONY: up down seed chaos logs ps help \
+.PHONY: up up-core obs down stop seed chaos logs ps help \
         build test install run-order run-inventory run-payment run-notification
 
 help: ## list targets
@@ -35,11 +35,24 @@ run-notification: ## run notification-service (:8084)
 
 # ---- Infra (docker-compose) ----
 
-up: ## start infra (Kafka, Postgres x4, Redis, schema registry, observability)
+# Core services needed for the saga (no observability / schema-registry).
+# notification db is included so notification-service can run later.
+CORE := kafka postgres-order postgres-inventory postgres-payment postgres-notification redis
+
+up: ## start FULL infra (core + schema registry + observability) — heavier
 	docker compose up -d
+
+up-core: ## start ONLY core infra (Kafka, 3+1 Postgres, Redis) — lean, less RAM
+	docker compose up -d $(CORE)
+
+obs: ## start the observability stack on top (Prometheus, Grafana, OTel, schema registry)
+	docker compose up -d prometheus grafana otel-collector schema-registry
 
 down: ## tear down stack + volumes
 	docker compose down -v
+
+stop: ## stop containers but KEEP data (volumes)
+	docker compose stop
 
 seed: ## seed demo data (events, seats, users)
 	@echo "TODO: run seed script against running services  # not built yet"
