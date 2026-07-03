@@ -1,7 +1,7 @@
 # Flash-Sale Ticketing Saga Platform — task runner
 # Infra targets use docker-compose; build/run targets use the Maven wrapper.
 
-.PHONY: up up-core obs down stop seed chaos logs ps help \
+.PHONY: up up-core obs kafka-ui down stop seed chaos logs ps help \
         build test install run-order run-inventory run-payment run-notification
 
 help: ## list targets
@@ -47,6 +47,9 @@ up-core: ## start ONLY core infra (Kafka, 3+1 Postgres, Redis) — lean, less RA
 
 obs: ## start the observability stack on top (Prometheus, Grafana, OTel, schema registry)
 	docker compose up -d prometheus grafana otel-collector schema-registry
+
+kafka-ui: ## start Kafka UI to browse topics/messages/lag (http://localhost:8085)
+	docker compose up -d kafka-ui
 
 down: ## tear down stack + volumes
 	docker compose down -v

@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Ticketing Saga — Debug Dashboard</title>
+<style>
+  /* Deliberately thin, no framework. Just enough to read state at a glance. */
+  :root {
+    --bg:#0f1115; --panel:#181b22; --line:#2a2f3a; --text:#e6e8ee; --muted:#8b93a7;
+    --green:#2ea043; --red:#d13438; --amber:#d18f1e; --blue:#2f6feb; --grey:#4a5162;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:14px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+  header { padding:14px 20px; border-bottom:1px solid var(--line);
+           display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  .status { color:var(--muted); font-size:12px; }
+  main { padding:16px 20px; display:grid; gap:16px; grid-template-columns:1fr 1fr; }
+  @media (max-width:900px){ main { grid-template-columns:1fr; } }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .panel > h2 { font-size:13px; margin:0; padding:10px 14px; border-bottom:1px solid var(--line);
+                color:var(--muted); text-transform:uppercase; letter-spacing:.04em; font-weight:600; }
+  .panel .body { max-height:340px; overflow:auto; }
+  table { width:100%; border-collapse:collapse; }
+  th,td { text-align:left; padding:7px 14px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--muted); font-weight:500; font-size:12px; position:sticky; top:0; background:var(--panel); }
+  td.mono, .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+  .id { color:var(--muted); }
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; }
+  .b-green{background:rgba(46,160,67,.15);color:#4ae168;} .b-red{background:rgba(209,52,56,.15);color:#ff6b6f;}
+  .b-amber{background:rgba(209,143,30,.15);color:#f0b64a;} .b-blue{background:rgba(47,111,235,.15);color:#79a6ff;}
+  .b-grey{background:rgba(74,81,98,.25);color:#a7b0c4;}
+  .tiles { display:flex; gap:8px; flex-wrap:wrap; }
+  .tile { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px 12px; min-width:92px; }
+  .tile .n { font-size:20px; font-weight:700; } .tile .l { font-size:11px; color:var(--muted); }
+  form { display:flex; gap:8px; align-items:end; flex-wrap:wrap; }
+  label { display:flex; flex-direction:column; gap:3px; font-size:11px; color:var(--muted); }
+  input,select,button { background:#0d0f14; color:var(--text); border:1px solid var(--line);
+                        border-radius:6px; padding:6px 9px; font-size:13px; }
+  button { cursor:pointer; background:var(--blue); border-color:var(--blue); color:#fff; font-weight:600; }
+  button.ghost { background:transparent; border-color:var(--line); color:var(--muted); font-weight:500; padding:3px 8px; font-size:11px; }
+  button:hover { filter:brightness(1.1); }
+  .full { grid-column:1 / -1; }
+  .empty { padding:14px; color:var(--muted); font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎫 Ticketing Saga — Debug Dashboard</h1>
+  <div class="tiles" id="tiles"></div>
+  <div style="margin-left:auto" class="status">
+    <label style="flex-direction:row;align-items:center;gap:6px;color:var(--muted)">
+      <input type="checkbox" id="auto" checked style="width:auto"/> auto-refresh 2s
+    </label>
+  </div>
+  <div class="status" id="lastUpdate">—</div>
+</header>
+
+<main>
+  <!-- Place / drive the saga -->
+  <section class="panel full">
+    <h2>Place order</h2>
+    <div style="padding:12px 14px">
+      <form id="placeForm">
+        <label>Seat
+          <input id="seatId" value="seat-A1" size="10"/>
+        </label>
+        <label>Event
+          <input id="eventScheduleId" value="show-9" size="8"/>
+        </label>
+        <label>Amount
+          <input id="amount" type="number" value="60" step="0.01" size="8"/>
+        </label>
+        <label style="visibility:hidden">.<button type="submit">Place order</button></label>
+        <div class="status">Tip: amount &gt; 1000 ⇒ payment declined (compensation).</div>
+      </form>
+      <div class="status" id="placeMsg" style="margin-top:8px"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Orders <span id="ordersLag" class="status"></span></h2>
+    <div class="body"><table id="orders"><tbody></tbody></table></div>
+  </section>
+
+  <section class="panel">
+    <h2>Seats</h2>
+    <div class="body"><table id="seats"><tbody></tbody></table></div>
+  </section>
+
+  <section class="panel">
+    <h2>Payments</h2>
+    <div class="body"><table id="payments"><tbody></tbody></table></div>
+  </section>
+
+  <section class="panel">
+    <h2>Notifications</h2>
+    <div class="body"><table id="notifications"><tbody></tbody></table></div>
+  </section>
+</main>
+
+<script>
+// The four services, each on its own port (see application.yml).
+const SVC = {
+  order:        "http://localhost:8081",
+  inventory:    "http://localhost:8082",
+  payment:      "http://localhost:8083",
+  notification: "http://localhost:8084",
+};
+
+const short = (id) => id ? `<span class="id">${String(id).slice(0,8)}</span>` : "—";
+
+// Status → coloured badge.
+function badge(v){
+  const map = {
+    CONFIRMED:"b-green", AVAILABLE:"b-green", AUTHORIZED:"b-green", ORDER_CONFIRMED:"b-green",
+    CANCELLED:"b-red", DECLINED:"b-red", SOLD_OUT:"b-red", ORDER_CANCELLED:"b-red",
+    PENDING:"b-amber", RESERVED:"b-amber",
+    SOLD:"b-blue", PAYMENT_REFUNDED:"b-blue", REFUNDED:"b-blue",
+  };
+  return `<span class="badge ${map[v]||"b-grey"}">${v}</span>`;
+}
+
+async function getJson(url){
+  try { const r = await fetch(url); return r.ok ? await r.json() : null; }
+  catch { return null; }   // service down → null, dashboard keeps working
+}
+
+function rows(tableId, data, render, cols){
+  const tb = document.querySelector(`#${tableId} tbody`);
+  if (data === null){ tb.innerHTML = `<tr><td class="empty">service unavailable</td></tr>`; return; }
+  if (data.length === 0){ tb.innerHTML = `<tr><td class="empty">none yet</td></tr>`; return; }
+  tb.innerHTML = `<tr>${cols.map(c=>`<th>${c}</th>`).join("")}</tr>` + data.map(render).join("");
+}
+
+async function cancelOrder(id){
+  await fetch(`${SVC.order}/api/orders/${id}/cancel`, {method:"POST"});
+  refresh();
+}
+window.cancelOrder = cancelOrder;
+
+async function refresh(){
+  const [orders, seats, payments, notifs] = await Promise.all([
+    getJson(`${SVC.order}/api/orders`),
+    getJson(`${SVC.inventory}/api/seats`),
+    getJson(`${SVC.payment}/api/payments`),
+    getJson(`${SVC.notification}/api/notifications`),
+  ]);
+
+  // Orders (with a cancel button for non-terminal ones).
+  rows("orders", orders, o => {
+    const canCancel = o.status !== "CANCELLED";
+    return `<tr>
+      <td class="mono">${short(o.id)}</td>
+      <td class="mono">${o.seatId}</td>
+      <td>${badge(o.status)}</td>
+      <td class="mono">${o.amount} ${o.currency}</td>
+      <td>${canCancel ? `<button class="ghost" onclick="cancelOrder('${o.id}')">cancel</button>`:""}</td>
+    </tr>`;
+  }, ["order","seat","status","amount",""]);
+
+  rows("seats", seats, s => `<tr>
+      <td class="mono">${s.seatId}</td>
+      <td>${badge(s.status)}</td>
+      <td class="mono">${short(s.reservedByOrder)}</td>
+    </tr>`, ["seat","status","held by"]);
+
+  rows("payments", payments, p => `<tr>
+      <td class="mono">${short(p.orderId)}</td>
+      <td class="mono">${p.amount} ${p.currency}</td>
+      <td>${badge(p.status)}</td>
+    </tr>`, ["order","amount","status"]);
+
+  // newest notifications first
+  const nsorted = notifs ? [...notifs].reverse() : notifs;
+  rows("notifications", nsorted, n => `<tr>
+      <td>${badge(n.type)}</td>
+      <td class="mono">${short(n.orderId)}</td>
+      <td style="white-space:normal">${n.message}</td>
+    </tr>`, ["type","order","message"]);
+
+  renderTiles(orders, seats);
+  document.querySelector("#lastUpdate").textContent = "updated " + new Date().toLocaleTimeString();
+}
+
+function count(arr, key){
+  const c = {};
+  (arr||[]).forEach(x => c[x[key]] = (c[x[key]]||0)+1);
+  return c;
+}
+
+function renderTiles(orders, seats){
+  const o = count(orders, "status"), s = count(seats, "status");
+  const tiles = [
+    ["orders", (orders||[]).length, "b-grey"],
+    ["confirmed", o.CONFIRMED||0, "b-green"],
+    ["pending", o.PENDING||0, "b-amber"],
+    ["cancelled", o.CANCELLED||0, "b-red"],
+    ["seats sold", s.SOLD||0, "b-blue"],
+    ["available", s.AVAILABLE||0, "b-green"],
+  ];
+  document.querySelector("#tiles").innerHTML = tiles.map(([l,n]) =>
+    `<div class="tile"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
+}
+
+// Place-order form → POST to order-service.
+document.querySelector("#placeForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const body = {
+    userId: "dashboard-user",
+    seatId: document.querySelector("#seatId").value.trim(),
+    eventScheduleId: document.querySelector("#eventScheduleId").value.trim(),
+    amount: parseFloat(document.querySelector("#amount").value),
+    currency: "USD",
+    requestId: "req-" + Date.now(),
+  };
+  const msg = document.querySelector("#placeMsg");
+  try {
+    const r = await fetch(`${SVC.order}/api/orders`, {
+      method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body),
+    });
+    const j = await r.json();
+    msg.textContent = `placed order ${j.orderId} — watch it flow →`;
+    setTimeout(refresh, 300);
+  } catch { msg.textContent = "failed — is order-service running on :8081?"; }
+});
+
+// Auto-refresh loop.
+let timer = null;
+function loop(){ if (document.querySelector("#auto").checked) refresh(); }
+setInterval(loop, 2000);
+refresh();
+</script>
+</body>
+</html>

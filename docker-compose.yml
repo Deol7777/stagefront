@@ -41,6 +41,21 @@ services:
       timeout: 10s
       retries: 10
 
+  # ---- Kafka UI (browse topics, messages, consumer-group lag) ----
+  # Optional/dev tool. Start with `make kafka-ui`. Connects to the broker on the
+  # in-network listener kafka:9094. Web UI on http://localhost:8085.
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - "8085:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: ticketing
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9094
+      DYNAMIC_CONFIG_ENABLED: "true"
+    depends_on:
+      kafka:
+        condition: service_healthy
+
   # ---- Schema registry (free, non-Confluent) ----
   schema-registry:
     image: apicurio/apicurio-registry-mem:2.5.11.Final
