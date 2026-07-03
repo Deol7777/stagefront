@@ -21,7 +21,17 @@ public class KafkaTopicsConfig {
     }
 
     @Bean
+    public NewTopic paymentsRefundedTopic() {
+        return TopicBuilder.name(Topics.PAYMENTS_REFUNDED).partitions(3).replicas(1).build();
+    }
+
+    @Bean
     public NewTopic inventoryReservedDlqTopic() {
         return TopicBuilder.name(Topics.dlq(Topics.INVENTORY_RESERVED)).partitions(3).replicas(1).build();
+    }
+
+    @Bean
+    public NewTopic ordersCancelledDlqTopic() {
+        return TopicBuilder.name(Topics.dlq(Topics.ORDERS_CANCELLED)).partitions(3).replicas(1).build();
     }
 }

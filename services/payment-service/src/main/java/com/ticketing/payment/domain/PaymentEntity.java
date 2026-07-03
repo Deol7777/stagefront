@@ -52,7 +52,14 @@ public class PaymentEntity {
         this.createdAt = createdAt;
     }
 
-    public String getPaymentId() { return paymentId; }
-    public String getOrderId()   { return orderId; }
+    public String getPaymentId()  { return paymentId; }
+    public String getOrderId()    { return orderId; }
+    public BigDecimal getAmount() { return amount; }
+    public String getCurrency()   { return currency; }
     public PaymentStatus getStatus() { return status; }
+
+    /** Compensation: reverse an authorized charge. */
+    public void markRefunded() {
+        this.status = PaymentStatus.REFUNDED;
+    }
 }
