@@ -2,7 +2,8 @@
 # Infra targets use docker-compose; build/run targets use the Maven wrapper.
 
 .PHONY: up up-core obs kafka-ui down stop seed chaos logs ps help \
-        build test install run-order run-inventory run-payment run-notification
+        build test install run-order run-inventory run-payment run-notification \
+        poison dlq dlq-peek
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -62,6 +63,27 @@ seed: ## seed demo data (events, seats, users)
 
 chaos: ## drive chaos toggles / fault injection
 	@echo "TODO: invoke chaos control endpoints  # not built yet"
+
+# ---- DLQ / poison-message demo (note 12) ----
+
+# Inject a malformed record straight onto orders.placed. It is NOT valid JSON, so
+# inventory-service's parse() throws → 3 attempts (FixedBackOff 500ms x2) → the
+# DeadLetterPublishingRecoverer routes it to orders.placed.DLQ. Watch it with
+# `make dlq`, the dashboard DLQ panel, or kafka-ui (:8085).
+# --key so the record carries a key (mirrors how the outbox keys by orderId).
+poison: ## inject a poison (malformed) event into orders.placed → lands in orders.placed.DLQ
+	@printf 'deadbeef:NOT-VALID-JSON-{{{\n' | docker compose exec -T kafka \
+		/opt/kafka/bin/kafka-console-producer.sh --bootstrap-server localhost:9094 \
+		--topic orders.placed --property parse.key=true --property key.separator=:
+	@echo "→ poison sent. inventory-service retries 3x, then routes to orders.placed.DLQ."
+
+# List every *.DLQ topic + its depth via order-service's DLQ admin API.
+dlq: ## list DLQ topics + message counts (order-service :8081 must be running)
+	@curl -s http://localhost:8081/api/dlq/topics | python3 -m json.tool
+
+# Peek the contents of one DLQ topic: make dlq-peek TOPIC=orders.placed.DLQ
+dlq-peek: ## peek messages on a DLQ topic (TOPIC=orders.placed.DLQ)
+	@curl -s "http://localhost:8081/api/dlq/$(TOPIC)" | python3 -m json.tool
 
 logs: ## tail aggregated service logs
 	docker compose logs -f

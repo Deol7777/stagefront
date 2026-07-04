@@ -99,6 +99,15 @@
     <h2>Notifications</h2>
     <div class="body"><table id="notifications"><tbody></tbody></table></div>
   </section>
+
+  <!-- Dead-letter queues: poison / exhausted-retry messages, with replay.
+       Backed by order-service's /api/dlq/* (one admin surface for all *.DLQ). -->
+  <section class="panel full">
+    <h2>Dead-letter queues
+      <span class="status">— messages that exhausted retries. Replay is safe (idempotent consumers).</span>
+    </h2>
+    <div class="body" id="dlq" style="max-height:none"></div>
+  </section>
 </main>
 
 <script>
@@ -182,8 +191,83 @@ async function refresh(){
     </tr>`, ["type","order","message"]);
 
   renderTiles(orders, seats);
+  refreshDlq();
   document.querySelector("#lastUpdate").textContent = "updated " + new Date().toLocaleTimeString();
 }
+
+// ---- Dead-letter queue panel ---------------------------------------------
+// Tracks which DLQ topics are expanded so auto-refresh doesn't collapse them.
+const dlqOpen = new Set();
+
+async function refreshDlq(){
+  const el = document.querySelector("#dlq");
+  const topics = await getJson(`${SVC.order}/api/dlq/topics`);
+  if (topics === null){ el.innerHTML = `<div class="empty">order-service unavailable (:8081)</div>`; return; }
+  // Only show DLQs that actually hold messages — keeps the panel quiet until something dies.
+  const nonEmpty = topics.filter(t => t.messageCount > 0);
+  if (nonEmpty.length === 0){ el.innerHTML = `<div class="empty">no dead-lettered messages 🎉</div>`; return; }
+
+  el.innerHTML = nonEmpty.map(t => {
+    const open = dlqOpen.has(t.topic);
+    return `<div style="border-bottom:1px solid var(--line)">
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 14px">
+        <span class="badge b-red">${t.messageCount}</span>
+        <span class="mono">${t.topic}</span>
+        <span class="status">→ ${t.sourceTopic}</span>
+        <span style="margin-left:auto;display:flex;gap:6px">
+          <button class="ghost" onclick="toggleDlq('${t.topic}')">${open ? "hide" : "peek"}</button>
+          <button class="ghost" onclick="replayDlq('${t.topic}')" title="republish all to ${t.sourceTopic}">replay all</button>
+        </span>
+      </div>
+      <div id="dlq-body-${cssId(t.topic)}" style="${open ? "" : "display:none"}"></div>
+    </div>`;
+  }).join("");
+
+  // Re-load the message list for any topic left open.
+  for (const t of nonEmpty){ if (dlqOpen.has(t.topic)) loadDlqMessages(t.topic); }
+}
+
+// Kafka topic names contain dots → not valid in a bare id selector; swap for a class-safe token.
+const cssId = (s) => s.replace(/[^a-z0-9]/gi, "_");
+
+async function toggleDlq(topic){
+  if (dlqOpen.has(topic)) dlqOpen.delete(topic); else dlqOpen.add(topic);
+  refreshDlq();
+}
+window.toggleDlq = toggleDlq;
+
+async function loadDlqMessages(topic){
+  const body = document.querySelector(`#dlq-body-${cssId(topic)}`);
+  if (!body) return;
+  const msgs = await getJson(`${SVC.order}/api/dlq/${topic}?max=50`);
+  if (!msgs || msgs.length === 0){ body.innerHTML = `<div class="empty">empty</div>`; return; }
+  body.innerHTML = `<table><tr>
+      <th>part:offset</th><th>key</th><th>why it died</th><th>value</th><th></th></tr>` +
+    msgs.map(m => `<tr>
+      <td class="mono">${m.partition}:${m.offset}</td>
+      <td class="mono">${m.key ?? "—"}</td>
+      <td style="white-space:normal;color:#ff6b6f">${(m.exceptionMessage||"").slice(0,90) || "—"}</td>
+      <td class="mono" style="white-space:normal;max-width:340px;overflow:hidden">${(m.value||"").slice(0,120)}</td>
+      <td><button class="ghost" onclick="replayOne('${topic}',${m.partition},${m.offset})">replay</button></td>
+    </tr>`).join("") + `</table>`;
+}
+
+async function replayDlq(topic){
+  if (!confirm(`Replay ALL messages on ${topic} back to its source topic?`)) return;
+  const r = await fetch(`${SVC.order}/api/dlq/${topic}/replay`, {method:"POST"});
+  const j = await r.json();
+  alert(`replayed ${j.replayed} record(s): ${topic} → ${j.sourceTopic}`);
+  refresh();
+}
+window.replayDlq = replayDlq;
+
+async function replayOne(topic, partition, offset){
+  const r = await fetch(`${SVC.order}/api/dlq/${topic}/replay?partition=${partition}&offset=${offset}`, {method:"POST"});
+  const j = await r.json();
+  alert(`replayed ${j.replayed} record(s): ${topic}@${partition}:${offset} → ${j.sourceTopic}`);
+  refresh();
+}
+window.replayOne = replayOne;
 
 function count(arr, key){
   const c = {};
