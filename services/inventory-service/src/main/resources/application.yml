@@ -57,3 +57,8 @@ outbox:
 seat:
   lock:
     ttl-ms: 5000
+  # Cache-aside TTL (ms) for the seat read cache. A safety net, not the primary
+  # freshness mechanism: writes evict the key explicitly, so the TTL only bounds how
+  # long a *missed* invalidation (e.g. a crash between commit and evict) could serve stale.
+  cache:
+    ttl-ms: 30000

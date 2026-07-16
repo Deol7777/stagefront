@@ -4,6 +4,7 @@ import com.ticketing.contracts.EventEnvelope;
 import com.ticketing.contracts.events.OrderCancelled;
 import com.ticketing.contracts.events.OrderConfirmed;
 import com.ticketing.contracts.events.PaymentDeclined;
+import com.ticketing.inventory.cache.SeatCache;
 import com.ticketing.inventory.consumer.ProcessedEvent;
 import com.ticketing.inventory.consumer.ProcessedEventRepository;
 import com.ticketing.inventory.domain.SeatEntity;
@@ -40,10 +41,12 @@ public class InventorySagaService {
 
     private final SeatRepository seats;
     private final ProcessedEventRepository processed;
+    private final SeatCache cache;
 
-    public InventorySagaService(SeatRepository seats, ProcessedEventRepository processed) {
+    public InventorySagaService(SeatRepository seats, ProcessedEventRepository processed, SeatCache cache) {
         this.seats = seats;
         this.processed = processed;
+        this.cache = cache;
     }
 
     /** Compensation: payment failed → free the seat this order was holding. */
@@ -73,6 +76,7 @@ public class InventorySagaService {
         seats.findById(c.seatId()).ifPresent(seat -> {
             if (seat.getStatus() == SeatStatus.RESERVED && c.orderId().equals(seat.getReservedByOrder())) {
                 seat.markSold(Instant.now());
+                cache.evictAfterCommit(seat.getSeatId());   // SOLD → invalidate cached view
                 log.info("Seat {} SOLD (order {} confirmed)", seat.getSeatId(), c.orderId());
             }
         });
@@ -90,6 +94,7 @@ public class InventorySagaService {
         boolean releasable = seat.getStatus() == SeatStatus.RESERVED || seat.getStatus() == SeatStatus.SOLD;
         if (heldByOrder && releasable) {
             seat.release(Instant.now());
+            cache.evictAfterCommit(seat.getSeatId());   // back to AVAILABLE → invalidate cached view
             log.info("Seat {} RELEASED (order {} compensation)", seat.getSeatId(), orderId);
         }
     }

@@ -93,6 +93,17 @@
     </div>
   </section>
 
+  <!-- Seat read cache (Redis cache-aside). Backed by inventory /api/seats/cache/stats. -->
+  <section class="panel full">
+    <h2>Seat cache <span class="status">— Redis cache-aside on GET /api/seats/{id}</span></h2>
+    <div style="padding:12px 14px;display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+      <span>hits <span id="cacheHits" class="badge b-green">0</span></span>
+      <span>misses <span id="cacheMisses" class="badge b-amber">0</span></span>
+      <span>hit rate <span id="cacheRate" class="badge b-blue">—</span></span>
+      <span class="status">first read of a seat = miss (loads DB + caches); repeat = hit; a reserve/release/sell evicts it</span>
+    </div>
+  </section>
+
   <section class="panel">
     <h2>Orders <span id="ordersLag" class="status"></span></h2>
     <div class="body"><table id="orders"><tbody></tbody></table></div>
@@ -206,7 +217,18 @@ async function refresh(){
   renderTiles(orders, seats);
   refreshDlq();
   refreshCb();
+  refreshCache();
   document.querySelector("#lastUpdate").textContent = "updated " + new Date().toLocaleTimeString();
+}
+
+// ---- Seat cache stats ----------------------------------------------------
+async function refreshCache(){
+  const s = await getJson(`${SVC.inventory}/api/seats/cache/stats`);
+  const h = document.querySelector("#cacheHits"), m = document.querySelector("#cacheMisses"),
+        r = document.querySelector("#cacheRate");
+  if (!s){ h.textContent = m.textContent = "—"; r.textContent = "inventory down"; return; }
+  h.textContent = s.hits; m.textContent = s.misses;
+  r.textContent = s.total ? (s.hitRate*100).toFixed(0) + "%" : "—";
 }
 
 // ---- Circuit breaker / gateway chaos ------------------------------------

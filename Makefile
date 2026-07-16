@@ -3,7 +3,8 @@
 
 .PHONY: up up-core obs kafka-ui down stop seed chaos logs ps help \
         build test install run-order run-inventory run-payment run-notification \
-        poison dlq dlq-peek gateway-fail gateway-ok cb-state
+        poison dlq dlq-peek gateway-fail gateway-ok cb-state \
+        cache-stats cache-get cache-redis
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -101,6 +102,21 @@ gateway-ok: ## restore the payment gateway (breaker recovers to CLOSED)
 # Show the gateway toggle + live circuit-breaker state (CLOSED / OPEN / HALF_OPEN).
 cb-state: ## show gateway toggle + circuit-breaker state
 	@curl -s http://localhost:8083/api/chaos/gateway | python3 -m json.tool
+
+# ---- Seat read cache (Redis cache-aside, note 14) ----
+
+# Cache-aside read of one seat (Redis → miss → Postgres). Run twice: 1st = miss, 2nd = hit.
+cache-get: ## cache-aside read of one seat (SEAT=seat-A1)
+	@curl -s "http://localhost:8082/api/seats/$(SEAT)" | python3 -m json.tool
+
+# Hit/miss counters + hit rate for the seat cache.
+cache-stats: ## show seat-cache hit/miss stats
+	@curl -s http://localhost:8082/api/seats/cache/stats | python3 -m json.tool
+
+# Peek the raw cached seat keys straight from Redis.
+cache-redis: ## list cached seat keys in Redis (and dump values)
+	@docker compose exec -T redis redis-cli --scan --pattern 'seat:*' | while read k; do \
+		printf '%s = ' "$$k"; docker compose exec -T redis redis-cli get "$$k"; done
 
 logs: ## tail aggregated service logs
 	docker compose logs -f

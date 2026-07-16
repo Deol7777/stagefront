@@ -33,9 +33,10 @@ class InventorySagaServiceTest {
 
     @Mock SeatRepository seats;
     @Mock ProcessedEventRepository processed;
+    @Mock com.ticketing.inventory.cache.SeatCache cache;
 
     private InventorySagaService service() {
-        return new InventorySagaService(seats, processed);
+        return new InventorySagaService(seats, processed, cache);
     }
 
     private SeatEntity seat(SeatStatus status, String owner) {

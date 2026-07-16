@@ -6,6 +6,7 @@ import com.ticketing.contracts.events.OrderPlaced;
 import com.ticketing.contracts.events.ReservationFailureReason;
 import com.ticketing.contracts.events.SeatReservationFailed;
 import com.ticketing.contracts.events.SeatReserved;
+import com.ticketing.inventory.cache.SeatCache;
 import com.ticketing.inventory.consumer.ProcessedEvent;
 import com.ticketing.inventory.consumer.ProcessedEventRepository;
 import com.ticketing.inventory.domain.SeatEntity;
@@ -41,11 +42,14 @@ public class ReservationService {
     private final SeatRepository seats;
     private final ProcessedEventRepository processed;
     private final OutboxWriter outbox;
+    private final SeatCache cache;
 
-    public ReservationService(SeatRepository seats, ProcessedEventRepository processed, OutboxWriter outbox) {
+    public ReservationService(SeatRepository seats, ProcessedEventRepository processed,
+                              OutboxWriter outbox, SeatCache cache) {
         this.seats = seats;
         this.processed = processed;
         this.outbox = outbox;
+        this.cache = cache;
     }
 
     @Transactional
@@ -84,6 +88,9 @@ public class ReservationService {
         String reservationId = UUID.randomUUID().toString();
         Instant reservedUntil = Instant.now().plus(HOLD);
         seat.reserve(order.orderId(), reservationId, Instant.now());
+        // Seat state changed → drop the cached view once this tx commits, so the next
+        // read of this seat reloads the fresh RESERVED value instead of a stale AVAILABLE.
+        cache.evictAfterCommit(seat.getSeatId());
 
         var event = new SeatReserved(
                 order.orderId(), seat.getSeatId(), reservationId, reservedUntil, order.amount());

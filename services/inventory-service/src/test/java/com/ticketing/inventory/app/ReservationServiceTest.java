@@ -38,9 +38,10 @@ class ReservationServiceTest {
     @Mock SeatRepository seats;
     @Mock ProcessedEventRepository processed;
     @Mock OutboxWriter outbox;
+    @Mock com.ticketing.inventory.cache.SeatCache cache;
 
     private ReservationService service() {
-        return new ReservationService(seats, processed, outbox);
+        return new ReservationService(seats, processed, outbox, cache);
     }
 
     private EventEnvelope<OrderPlaced> orderPlaced() {
