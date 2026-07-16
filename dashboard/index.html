@@ -80,6 +80,19 @@
     </div>
   </section>
 
+  <!-- Payment gateway circuit breaker: live state + chaos toggle.
+       Backed by payment-service /api/chaos/gateway. -->
+  <section class="panel full">
+    <h2>Payment gateway &amp; circuit breaker</h2>
+    <div style="padding:12px 14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <span>breaker <span id="cbState" class="badge b-grey">—</span></span>
+      <span>gateway <span id="gwState" class="badge b-grey">—</span></span>
+      <button class="ghost" onclick="setGateway(true)">make gateway fail</button>
+      <button class="ghost" onclick="setGateway(false)">restore gateway</button>
+      <span class="status">gateway fail → retries → breaker OPEN → payments decline (GATEWAY_UNAVAILABLE) → saga compensates → restore → HALF_OPEN → CLOSED</span>
+    </div>
+  </section>
+
   <section class="panel">
     <h2>Orders <span id="ordersLag" class="status"></span></h2>
     <div class="body"><table id="orders"><tbody></tbody></table></div>
@@ -192,8 +205,26 @@ async function refresh(){
 
   renderTiles(orders, seats);
   refreshDlq();
+  refreshCb();
   document.querySelector("#lastUpdate").textContent = "updated " + new Date().toLocaleTimeString();
 }
+
+// ---- Circuit breaker / gateway chaos ------------------------------------
+async function refreshCb(){
+  const cb = document.querySelector("#cbState"), gw = document.querySelector("#gwState");
+  const s = await getJson(`${SVC.payment}/api/chaos/gateway`);
+  if (!s){ cb.textContent = "payment down"; cb.className = "badge b-grey";
+           gw.textContent = "—"; gw.className = "badge b-grey"; return; }
+  const map = {CLOSED:"b-green", OPEN:"b-red", HALF_OPEN:"b-amber", UNKNOWN:"b-grey"};
+  cb.textContent = s.breakerState;      cb.className = "badge " + (map[s.breakerState] || "b-grey");
+  gw.textContent = s.fail ? "FAILING" : "OK"; gw.className = "badge " + (s.fail ? "b-red" : "b-green");
+}
+
+async function setGateway(fail){
+  await fetch(`${SVC.payment}/api/chaos/gateway?fail=${fail}`, {method:"POST"});
+  refreshCb();
+}
+window.setGateway = setGateway;
 
 // ---- Dead-letter queue panel ---------------------------------------------
 // Tracks which DLQ topics are expanded so auto-refresh doesn't collapse them.

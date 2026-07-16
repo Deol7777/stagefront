@@ -3,7 +3,7 @@
 
 .PHONY: up up-core obs kafka-ui down stop seed chaos logs ps help \
         build test install run-order run-inventory run-payment run-notification \
-        poison dlq dlq-peek
+        poison dlq dlq-peek gateway-fail gateway-ok cb-state
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -84,6 +84,23 @@ dlq: ## list DLQ topics + message counts (order-service :8081 must be running)
 # Peek the contents of one DLQ topic: make dlq-peek TOPIC=orders.placed.DLQ
 dlq-peek: ## peek messages on a DLQ topic (TOPIC=orders.placed.DLQ)
 	@curl -s "http://localhost:8081/api/dlq/$(TOPIC)" | python3 -m json.tool
+
+# ---- Circuit breaker / gateway chaos (note 13) ----
+
+# Turn the simulated payment gateway OFF (every charge fails). After a few failed
+# orders the paymentGateway circuit breaker trips OPEN and payments fast-fail as
+# PaymentDeclined(GATEWAY_UNAVAILABLE) → the saga compensates. Watch `make cb-state`.
+gateway-fail: ## make the payment gateway fail (trips the circuit breaker)
+	@curl -s -X POST "http://localhost:8083/api/chaos/gateway?fail=true" | python3 -m json.tool
+
+# Restore the gateway. The breaker moves OPEN → HALF_OPEN (probes) → CLOSED as
+# calls start succeeding again, and orders authorize normally.
+gateway-ok: ## restore the payment gateway (breaker recovers to CLOSED)
+	@curl -s -X POST "http://localhost:8083/api/chaos/gateway?fail=false" | python3 -m json.tool
+
+# Show the gateway toggle + live circuit-breaker state (CLOSED / OPEN / HALF_OPEN).
+cb-state: ## show gateway toggle + circuit-breaker state
+	@curl -s http://localhost:8083/api/chaos/gateway | python3 -m json.tool
 
 logs: ## tail aggregated service logs
 	docker compose logs -f

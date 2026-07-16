@@ -40,7 +40,14 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,prometheus
+        # circuitbreakers = live state (CLOSED/OPEN/HALF_OPEN); events = recent transitions.
+        include: health,info,prometheus,circuitbreakers,circuitbreakerevents
+  endpoint:
+    health:
+      show-details: always   # so /actuator/health surfaces the breaker's state too
+  health:
+    circuitbreakers:
+      enabled: true
 
 outbox:
   relay:
@@ -52,3 +59,38 @@ outbox:
 # order something pricey to exercise the decline → compensation path.
 payment:
   decline-above: 1000.00
+  # Simulated payment gateway (see PaymentGatewayClient). latency-ms just makes the
+  # call take realistic time; the fail switch is flipped at runtime via /api/chaos/gateway.
+  gateway:
+    latency-ms: 50
+
+# --- Resilience4j: circuit breaker + retry around the gateway call ---
+resilience4j:
+  circuitbreaker:
+    instances:
+      paymentGateway:
+        # Count-based window of the last N calls. Once >= failure-rate-threshold percent
+        # of them failed (and at least minimum-number-of-calls have been recorded), trip OPEN.
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50           # % of failures in the window that trips the breaker
+        wait-duration-in-open-state: 10s     # stay OPEN this long, then probe (HALF_OPEN)
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        # GatewayException = a real gateway failure → counts toward the failure rate.
+        record-exceptions:
+          - com.ticketing.payment.gateway.GatewayException
+  retry:
+    instances:
+      paymentGateway:
+        max-attempts: 3            # 1 try + 2 retries
+        wait-duration: 200ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - com.ticketing.payment.gateway.GatewayException
+        # Do NOT retry a breaker that's already OPEN — fast-fail straight to the decline
+        # instead of wasting 3 attempts on a call the breaker will reject anyway.
+        ignore-exceptions:
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException

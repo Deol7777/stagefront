@@ -59,6 +59,21 @@
             <artifactId>spring-kafka</artifactId>
         </dependency>
 
+        <!-- Resilience4j: circuit breaker + retry around the (simulated) payment
+             gateway call. Version comes from the resilience4j-bom imported in the
+             parent POM. The Spring Boot starter wires the @CircuitBreaker/@Retry
+             AOP aspects and the circuitbreakers actuator endpoint. -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-spring-boot3</artifactId>
+        </dependency>
+        <!-- resilience4j's annotations are implemented as AspectJ aspects; the AOP
+             starter provides the proxying they need to actually intervene. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
