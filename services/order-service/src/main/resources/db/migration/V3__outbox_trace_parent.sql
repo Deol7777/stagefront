@@ -1,0 +1,24 @@
+-- Carry the W3C trace context THROUGH the outbox.
+--
+-- Why this column exists:
+--   The outbox deliberately decouples "write the event" from "publish the event".
+--   The business transaction records the row; a scheduled relay publishes it a
+--   moment later. That decoupling is the whole point of the pattern — and it is
+--   also what breaks distributed tracing, because the relay runs on a timer
+--   thread with NO trace context. Every publish would otherwise start a brand
+--   new root trace, shattering one saga into a dozen unrelated single-span
+--   traces (exactly what Jaeger showed before this migration).
+--
+--   So we persist the trace context alongside the event, in the same commit,
+--   and the relay restores it before sending. Trace context becomes part of the
+--   durable state, like the payload itself.
+--
+-- Format: W3C traceparent, e.g.
+--   00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+--   ^version ^32-hex trace-id                ^16-hex span-id  ^flags
+--   55 chars today; varchar(64) leaves room for a future version prefix.
+--
+-- NULLable on purpose: rows written before this migration have no context, and
+-- an event produced outside any trace (a background job, a test) is legitimate.
+-- The relay treats NULL as "start a fresh trace" rather than failing.
+ALTER TABLE outbox ADD COLUMN trace_parent VARCHAR(64);

@@ -1,7 +1,7 @@
 # Flash-Sale Ticketing Saga Platform — task runner
 # Infra targets use docker-compose; build/run targets use the Maven wrapper.
 
-.PHONY: up up-core obs kafka-ui down stop seed chaos logs ps help \
+.PHONY: up up-core obs trace kafka-ui down stop seed chaos logs ps help \
         build test install run-order run-inventory run-payment run-notification \
         poison dlq dlq-peek gateway-fail gateway-ok cb-state \
         cache-stats cache-get cache-redis
@@ -47,8 +47,17 @@ up: ## start FULL infra (core + schema registry + observability) — heavier
 up-core: ## start ONLY core infra (Kafka, 3+1 Postgres, Redis) — lean, less RAM
 	docker compose up -d $(CORE)
 
-obs: ## start the observability stack on top (Prometheus, Grafana, OTel, schema registry)
-	docker compose up -d prometheus grafana otel-collector schema-registry
+obs: ## start observability on top (Prometheus :9090, Grafana :3000, OTel collector, Jaeger :16686)
+	docker compose up -d prometheus grafana otel-collector jaeger
+	@echo "Grafana  http://localhost:3000  (admin/admin)"
+	@echo "Prom     http://localhost:9090/targets"
+	@echo "Jaeger   http://localhost:16686"
+
+# schema-registry is NOT in `obs`: nothing uses it yet (events are serialized as
+# JSON strings), and it costs ~300MB for nothing. `make up` still starts it.
+
+trace: ## open the Jaeger UI (traces of the saga)
+	open http://localhost:16686
 
 kafka-ui: ## start Kafka UI to browse topics/messages/lag (http://localhost:8085)
 	docker compose up -d kafka-ui

@@ -53,12 +53,20 @@ public class OutboxEntity {
     @Column(name = "published_at")
     private Instant publishedAt;
 
+    /**
+     * W3C traceparent captured when this row was written, so the relay can publish
+     * the event inside the ORIGINATING trace instead of starting a new one.
+     * Nullable: an event can legitimately be produced outside any trace.
+     */
+    @Column(name = "trace_parent")
+    private String traceParent;
+
     protected OutboxEntity() {
     }
 
     public OutboxEntity(UUID id, String aggregateType, String aggregateId, String eventType,
                         String topic, String partitionKey, String payload, int schemaVersion,
-                        Instant createdAt) {
+                        Instant createdAt, String traceParent) {
         this.id = id;
         this.aggregateType = aggregateType;
         this.aggregateId = aggregateId;
@@ -69,6 +77,7 @@ public class OutboxEntity {
         this.schemaVersion = schemaVersion;
         this.createdAt = createdAt;
         this.published = false;
+        this.traceParent = traceParent;
     }
 
     public UUID getId()            { return id; }
@@ -77,6 +86,7 @@ public class OutboxEntity {
     public String getPayload()     { return payload; }
     public String getEventType()   { return eventType; }
     public boolean isPublished()   { return published; }
+    public String getTraceParent() { return traceParent; }
 
     /** Mark this event as successfully handed to Kafka. */
     public void markPublished(Instant when) {

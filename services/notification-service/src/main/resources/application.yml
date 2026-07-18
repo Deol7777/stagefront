@@ -30,6 +30,9 @@ spring:
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
     listener:
       ack-mode: record
+      observation-enabled: true            # consume side: extract `traceparent` from record headers
+    template:
+      observation-enabled: true            # only used by the DLQ publisher, but keep it consistent
 
 server:
   port: 8084
@@ -39,3 +42,12 @@ management:
     web:
       exposure:
         include: health,info,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: 1.0                     # sample everything locally; see order-service for why
+  otlp:
+    tracing:
+      endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}

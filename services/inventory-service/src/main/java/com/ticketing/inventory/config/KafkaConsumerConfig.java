@@ -46,6 +46,19 @@ public class KafkaConsumerConfig {
         var factory = new ConcurrentKafkaListenerContainerFactory<String, String>();
         factory.setConsumerFactory(consumerFactory);
         factory.setCommonErrorHandler(errorHandler);
+        // Turn on consumer-side observation EXPLICITLY.
+        //
+        // `spring.kafka.listener.observation-enabled: true` in application.yml only
+        // configures the factory Spring Boot builds for you. The moment you declare
+        // your own factory bean (we do, to attach the DLQ error handler) that
+        // auto-configured one is replaced and the property silently does nothing.
+        // Silently is the dangerous part: producers still stamp `traceparent` on
+        // records, so traces look fine until you notice consumers never join them
+        // and every saga is split at the topic boundary.
+        //
+        // With this on, the container extracts `traceparent` off the record and
+        // runs the listener as a child of the producing span.
+        factory.getContainerProperties().setObservationEnabled(true);
         return factory;
     }
 }

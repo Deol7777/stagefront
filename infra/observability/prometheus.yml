@@ -13,23 +13,30 @@ scrape_configs:
     static_configs:
       - targets: ["otel-collector:8889"]
 
-  # ---- Service jobs (placeholders — uncomment once services run) ----
-  # - job_name: order-service
-  #   metrics_path: /actuator/prometheus
-  #   static_configs:
-  #     - targets: ["order-service:8080"]
-  # - job_name: inventory-service
-  #   metrics_path: /actuator/prometheus
-  #   static_configs:
-  #     - targets: ["inventory-service:8080"]
-  # - job_name: payment-service
-  #   metrics_path: /actuator/prometheus
-  #   static_configs:
-  #     - targets: ["payment-service:8080"]
-  # - job_name: notification-service
-  #   metrics_path: /actuator/prometheus
-  #   static_configs:
-  #     - targets: ["notification-service:8080"]
+  # ---- Service jobs ----
+  # The services run on the HOST (via `make run-*`), not in compose, so Prometheus
+  # (which is in a container) reaches them through host.docker.internal — the
+  # Docker Desktop alias for the host machine. If a service isn't running its
+  # target just shows DOWN in http://localhost:9090/targets; the rest keep working.
+  #
+  # Once the services are containerised (Dockerfiles + compose app profile), swap
+  # these for the compose service names, e.g. ["order-service:8081"].
+  - job_name: order-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8081"]
+  - job_name: inventory-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8082"]
+  - job_name: payment-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8083"]
+  - job_name: notification-service
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8084"]
 
   # Kafka consumer-group lag — wire a kafka-exporter here later for the lag panel.
   # - job_name: kafka-exporter

@@ -43,6 +43,15 @@ spring:
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
     listener:
       ack-mode: record
+      # Wrap each listener invocation in a Micrometer Observation. On the consume
+      # side this EXTRACTS the W3C `traceparent` header off the record and makes
+      # the listener's work a child of the span that produced it. Off by default.
+      observation-enabled: true
+    template:
+      # Same idea on the produce side: every KafkaTemplate.send() becomes a span
+      # and INJECTS `traceparent` into the record headers. Producer injects,
+      # consumer extracts — that pair is the entire cross-service trace mechanism.
+      observation-enabled: true
 
 server:
   port: 8081
@@ -52,6 +61,23 @@ management:
     web:
       exposure:
         include: health,info,prometheus
+  metrics:
+    tags:
+      # Stamp every metric with the service name, so one Prometheus instance
+      # scraping all four services can still tell their series apart.
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      # 1.0 = record EVERY trace. Correct for local learning (you want to find the
+      # one order you just placed). In production this is where you'd drop to ~0.01
+      # and rely on tail sampling, because full sampling is expensive at volume.
+      probability: 1.0
+  otlp:
+    tracing:
+      # Where finished spans get shipped. The OTel collector (docker-compose)
+      # listens on 4318 for OTLP/HTTP; it forwards traces to Jaeger for viewing.
+      # Services run on the HOST via `make run-*`, so localhost is correct here.
+      endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
 
 # How often the outbox relay polls for unpublished rows (ms).
 outbox:

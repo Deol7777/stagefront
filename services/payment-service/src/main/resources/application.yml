@@ -32,6 +32,9 @@ spring:
         enable.idempotence: true
     listener:
       ack-mode: record
+      observation-enabled: true            # consume side: extract `traceparent` from record headers
+    template:
+      observation-enabled: true            # produce side: inject `traceparent` into record headers
 
 server:
   port: 8083
@@ -42,6 +45,15 @@ management:
       exposure:
         # circuitbreakers = live state (CLOSED/OPEN/HALF_OPEN); events = recent transitions.
         include: health,info,prometheus,circuitbreakers,circuitbreakerevents
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: 1.0                     # sample everything locally; see order-service for why
+  otlp:
+    tracing:
+      endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
   endpoint:
     health:
       show-details: always   # so /actuator/health surfaces the breaker's state too

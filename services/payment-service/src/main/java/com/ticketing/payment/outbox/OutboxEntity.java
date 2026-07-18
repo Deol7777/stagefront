@@ -46,12 +46,17 @@ public class OutboxEntity {
     @Column(name = "published_at")
     private Instant publishedAt;
 
+    /** W3C traceparent captured at write time so the relay can publish inside the
+     *  originating trace. Nullable — see order-service for the full rationale. */
+    @Column(name = "trace_parent")
+    private String traceParent;
+
     protected OutboxEntity() {
     }
 
     public OutboxEntity(UUID id, String aggregateType, String aggregateId, String eventType,
                         String topic, String partitionKey, String payload, int schemaVersion,
-                        Instant createdAt) {
+                        Instant createdAt, String traceParent) {
         this.id = id;
         this.aggregateType = aggregateType;
         this.aggregateId = aggregateId;
@@ -62,8 +67,10 @@ public class OutboxEntity {
         this.schemaVersion = schemaVersion;
         this.createdAt = createdAt;
         this.published = false;
+        this.traceParent = traceParent;
     }
 
+    public String getTraceParent()  { return traceParent; }
     public UUID getId()             { return id; }
     public String getTopic()        { return topic; }
     public String getPartitionKey() { return partitionKey; }

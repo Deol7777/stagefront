@@ -31,6 +31,13 @@ public class KafkaConsumerConfig {
         var factory = new ConcurrentKafkaListenerContainerFactory<String, String>();
         factory.setConsumerFactory(consumerFactory);
         factory.setCommonErrorHandler(errorHandler);
+        // Consumer-side observation must be set on OUR factory: the
+        // `spring.kafka.listener.observation-enabled` property only reaches the
+        // factory Boot auto-configures, which declaring this bean replaces.
+        // Without it, consumers never join the producer's trace and every saga
+        // is silently split at each topic boundary. See inventory-service for
+        // the longer note.
+        factory.getContainerProperties().setObservationEnabled(true);
         return factory;
     }
 }

@@ -17,7 +17,15 @@ exporters:
   # Prometheus scrapes this endpoint (see prometheus.yml otel-collector job).
   prometheus:
     endpoint: 0.0.0.0:8889
-  # Traces to stdout for now; replace with Tempo/Jaeger exporter when added.
+  # Traces -> Jaeger (UI on http://localhost:16686). Jaeger speaks OTLP natively
+  # since 1.35, so no jaeger-specific exporter is needed — plain OTLP/gRPC.
+  # `jaeger` is the compose service name; TLS off because it's a local network.
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  # Also dump spans to collector stdout — handy when Jaeger shows nothing and you
+  # need to know whether the problem is "spans never arrived" or "UI query wrong".
   debug:
     verbosity: normal
 
@@ -26,7 +34,7 @@ service:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [debug]
+      exporters: [otlp/jaeger, debug]
     metrics:
       receivers: [otlp]
       processors: [batch]
