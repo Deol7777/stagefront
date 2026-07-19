@@ -38,7 +38,13 @@ scrape_configs:
     static_configs:
       - targets: ["host.docker.internal:8084"]
 
-  # Kafka consumer-group lag — wire a kafka-exporter here later for the lag panel.
-  # - job_name: kafka-exporter
-  #   static_configs:
-  #     - targets: ["kafka-exporter:9308"]
+  # Kafka consumer-group lag, per group and per topic/partition.
+  # Key series:
+  #   kafka_consumergroup_lag                  lag per group/topic/partition
+  #   kafka_consumergroup_lag_sum              lag per group/topic (use this)
+  #   kafka_consumergroup_current_offset       where the group has committed to
+  #   kafka_topic_partition_current_offset     where the producer has got to
+  # Rising lag_sum = consumers falling behind producers.
+  - job_name: kafka-exporter
+    static_configs:
+      - targets: ["kafka-exporter:9308"]

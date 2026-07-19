@@ -56,6 +56,31 @@ services:
       kafka:
         condition: service_healthy
 
+  # ---- Kafka exporter (consumer-group lag as Prometheus metrics) ----
+  #
+  # Lag is THE health metric for an event-driven system. It answers the only
+  # question that matters when the saga feels slow: are consumers keeping up with
+  # producers, or falling behind? Latency and error rate can both look perfect
+  # while a consumer group silently drifts hours behind — the system isn't
+  # broken, it's just late, and every alert stays green.
+  #
+  # lag = log-end-offset (last message produced) - committed offset (last
+  # message the group finished). Growing lag = arrival rate > processing rate.
+  #
+  # Why a separate exporter instead of app metrics: lag is a property of the
+  # GROUP as seen by the broker, not of any one consumer process. A crashed or
+  # descheduled consumer reports nothing at all — and that's exactly when its lag
+  # matters most. The exporter asks the broker, so it still sees the group when
+  # every member is gone.
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.7.0
+    command: ["--kafka.server=kafka:9094"]
+    ports:
+      - "9308:9308"   # /metrics
+    depends_on:
+      kafka:
+        condition: service_healthy
+
   # ---- Schema registry (free, non-Confluent) ----
   schema-registry:
     image: apicurio/apicurio-registry-mem:2.5.11.Final

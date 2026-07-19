@@ -1,8 +1,8 @@
 # Flash-Sale Ticketing Saga Platform — task runner
 # Infra targets use docker-compose; build/run targets use the Maven wrapper.
 
-.PHONY: up up-core obs trace kafka-ui down stop seed chaos logs ps help \
-        build test install run-order run-inventory run-payment run-notification \
+.PHONY: up up-core obs trace lag kafka-ui down stop seed chaos logs ps help \
+        build test install run-order run-inventory run-payment run-notification stop-services \
         poison dlq dlq-peek gateway-fail gateway-ok cb-state \
         cache-stats cache-get cache-redis
 
@@ -35,6 +35,16 @@ run-payment: ## run payment-service (:8083)
 run-notification: ## run notification-service (:8084)
 	./mvnw -pl services/notification-service spring-boot:run
 
+# Kill every service started by a run-* target. Matches the Maven process, so it
+# won't touch the Docker infra (use `make stop` / `make down` for that).
+# The `|| true` keeps make happy when nothing is running — pkill exits 1 on no match.
+stop-services: ## stop all four Spring services started by run-*
+	@pkill -f "spring-boot:run" || true
+	@sleep 2
+	@lsof -nP -iTCP:8081,8082,8083,8084 -sTCP:LISTEN >/dev/null 2>&1 \
+		&& echo "warning: something still listening on 8081-8084 (try pkill -9 -f spring-boot:run)" \
+		|| echo "all services stopped"
+
 # ---- Infra (docker-compose) ----
 
 # Core services needed for the saga (no observability / schema-registry).
@@ -47,8 +57,8 @@ up: ## start FULL infra (core + schema registry + observability) — heavier
 up-core: ## start ONLY core infra (Kafka, 3+1 Postgres, Redis) — lean, less RAM
 	docker compose up -d $(CORE)
 
-obs: ## start observability on top (Prometheus :9090, Grafana :3000, OTel collector, Jaeger :16686)
-	docker compose up -d prometheus grafana otel-collector jaeger
+obs: ## start observability on top (Prometheus :9090, Grafana :3000, OTel collector, Jaeger :16686, kafka-exporter)
+	docker compose up -d prometheus grafana otel-collector jaeger kafka-exporter
 	@echo "Grafana  http://localhost:3000  (admin/admin)"
 	@echo "Prom     http://localhost:9090/targets"
 	@echo "Jaeger   http://localhost:16686"
@@ -58,6 +68,11 @@ obs: ## start observability on top (Prometheus :9090, Grafana :3000, OTel collec
 
 trace: ## open the Jaeger UI (traces of the saga)
 	open http://localhost:16686
+
+# Consumer-group lag, straight from Prometheus. Non-zero and GROWING means
+# consumers can't keep up; non-zero and shrinking is just a burst draining.
+lag: ## show Kafka consumer-group lag per group/topic
+	@python3 infra/observability/lag.py
 
 kafka-ui: ## start Kafka UI to browse topics/messages/lag (http://localhost:8085)
 	docker compose up -d kafka-ui
