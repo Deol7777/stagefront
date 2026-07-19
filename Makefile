@@ -4,7 +4,7 @@
 .PHONY: up up-core obs trace lag kafka-ui down stop seed chaos logs ps help \
         build test install run-order run-inventory run-payment run-notification stop-services \
         poison dlq dlq-peek gateway-fail gateway-ok cb-state \
-        cache-stats cache-get cache-redis
+        cache-stats cache-get cache-redis check
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -141,6 +141,15 @@ cache-stats: ## show seat-cache hit/miss stats
 cache-redis: ## list cached seat keys in Redis (and dump values)
 	@docker compose exec -T redis redis-cli --scan --pattern 'seat:*' | while read k; do \
 		printf '%s = ' "$$k"; docker compose exec -T redis redis-cli get "$$k"; done
+
+# ---- Invariant checker / reconciler (note 16) ----
+
+# Cross-checks the four services against each other: does a CONFIRMED order really
+# have a SOLD seat and an AUTHORIZED payment? Did every cancellation release its
+# seat and refund its money? GRACE is how long an order must have been settled
+# before it's judged — raise it if healthy in-flight sagas get flagged.
+check: ## run the cross-service invariant check (GRACE=30)
+	@curl -s "http://localhost:8081/api/invariants?graceSeconds=$(or $(GRACE),30)" | python3 -m json.tool
 
 logs: ## tail aggregated service logs
 	docker compose logs -f
