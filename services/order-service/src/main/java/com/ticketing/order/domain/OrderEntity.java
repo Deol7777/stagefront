@@ -46,12 +46,21 @@ public class OrderEntity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    /**
+     * Client-supplied idempotency token for the POST that created this order.
+     * Unique (see V4 migration) so a retried request cannot create a second
+     * order. Nullable: pre-migration rows, and clients that don't send one.
+     */
+    @Column(name = "request_id")
+    private String requestId;
+
     /** Required by JPA — do not use directly. */
     protected OrderEntity() {
     }
 
     public OrderEntity(String id, String userId, String seatId, String eventScheduleId,
-                       BigDecimal amount, String currency, OrderStatus status, Instant createdAt) {
+                       BigDecimal amount, String currency, OrderStatus status, Instant createdAt,
+                       String requestId) {
         this.id = id;
         this.userId = userId;
         this.seatId = seatId;
@@ -60,8 +69,10 @@ public class OrderEntity {
         this.currency = currency;
         this.status = status;
         this.createdAt = createdAt;
+        this.requestId = requestId;
     }
 
+    public String getRequestId()        { return requestId; }
     public String getId()               { return id; }
     public String getUserId()           { return userId; }
     public String getSeatId()           { return seatId; }
