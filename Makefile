@@ -108,8 +108,16 @@ down: ## tear down stack + volumes
 stop: ## stop containers but KEEP data (volumes)
 	docker compose stop
 
-seed: ## seed demo data (events, seats, users)
-	@echo "TODO: run seed script against running services  # not built yet"
+# Seed demo seats into inventory_db. Idempotent + non-destructive (never resets
+# a seat owned by a live order — see infra/seed/seats.sql). Users and event
+# schedules have no tables; they're just ids passed in place-order requests.
+# Needs postgres-inventory running (make up-core).
+seed: ## seed demo seats (idempotent; safe to re-run)
+	@docker compose exec -T postgres-inventory \
+		psql -U inventory -d inventory_db -q -f - < infra/seed/seats.sql
+	@docker compose exec -T postgres-inventory psql -U inventory -d inventory_db -t -A -c \
+		"select '  seats: ' || count(*) || ' total, ' || \
+		 count(*) filter (where status='AVAILABLE') || ' available' from seats;"
 
 chaos: ## drive chaos toggles / fault injection
 	@echo "TODO: invoke chaos control endpoints  # not built yet"
