@@ -1,13 +1,17 @@
 package com.ticketing.order.dlq;
 
 import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.header.Header;
+import org.apache.kafka.common.header.internals.RecordHeader;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,7 +23,7 @@ import org.springframework.stereotype.Service;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -46,13 +50,24 @@ import java.util.UUID;
  * (dedup key + processed-events store, note 05): re-processing a message it has already
  * applied is a no-op. Replay is the <i>reward</i> for having built idempotent consumers.
  *
- * <p><b>What replay does NOT do.</b> A Kafka topic is an append-only log; "replay" copies
- * a record forward, it does not delete it from the DLQ. So {@link #peek} keeps showing a
- * replayed message. A production system would track a per-record "replayed" marker (or use
- * a compacted status topic); for this learning/debug tool we keep it stateless and just
- * re-emit. True <i>poison</i> messages (malformed, will never parse) simply re-land on the
- * DLQ when replayed — correct behaviour: poison is fix-then-replay or discard, never blind
- * infinite replay.
+ * <p><b>Poison messages and why naive replay compounds.</b> A Kafka topic is an append-only
+ * log; "replay" copies a record forward, it does not delete it. A truly <i>poison</i> record
+ * (malformed, will never parse) fails again on the source topic and the recoverer re-lands it
+ * on the DLQ — so a blind "replay everything from the beginning" GROWS the DLQ every click
+ * (2 → 4 → 8 ...) and re-drives the same doomed record forever. Two things prevent that here:
+ * <ol>
+ *   <li><b>Consume-once.</b> Replay reads with a durable consumer group and COMMITS offsets,
+ *       so each drain starts after what the last one handled instead of re-reading history.
+ *       Without this, the immutable attempts=0 record is re-read (and re-emitted) on every
+ *       call and the attempt cap below can never take effect.</li>
+ *   <li><b>Attempt cap + parking-lot.</b> Each replay stamps/increments an
+ *       {@code x-replay-attempts} header (the recoverer preserves it when a record re-lands).
+ *       Once a record has been re-driven {@link #MAX_REPLAY_ATTEMPTS} times it is routed to a
+ *       terminal {@code <topic>.parking} queue instead of back to the source — quarantined,
+ *       never replayed again. That is what stops the compounding.</li>
+ * </ol>
+ * A transient-failure victim (downstream was briefly down) succeeds on replay and never comes
+ * back. A poison record burns its attempts, then parks. Either way the DLQ converges.
  *
  * <p><b>Implementation note.</b> We open a short-lived AdminClient / KafkaConsumer per call
  * and close it, rather than holding long-lived beans. This tool is invoked rarely (a human
@@ -68,6 +83,28 @@ public class DlqService {
 
     /** Our DLQ naming convention (mirrors {@code Topics.dlq()} / the DeadLetterPublishingRecoverer). */
     private static final String DLQ_SUFFIX = ".DLQ";
+
+    /** Terminal quarantine for records that exhausted their replay attempts. */
+    private static final String PARKING_SUFFIX = ".parking";
+
+    /** Header carrying how many times a record has been re-driven from a DLQ. */
+    private static final String REPLAY_ATTEMPTS_HEADER = "x-replay-attempts";
+
+    /** Why a record was parked (stamped on the parking-lot record for humans). */
+    private static final String PARKED_REASON_HEADER = "x-parked-reason";
+
+    /**
+     * How many times a record may be re-driven before it is parked. Kept low so a
+     * genuine poison message is quarantined quickly instead of thrashing the saga.
+     * A transient victim normally succeeds on the first replay and never returns.
+     */
+    static final int MAX_REPLAY_ATTEMPTS = 3;
+
+    /**
+     * Durable group id for the replay consumer. Fixed (not random) ON PURPOSE: its
+     * committed offsets are what give replay consume-once semantics across calls.
+     */
+    private static final String REPLAY_GROUP = "dlq-replay";
 
     /** Safety cap so a huge DLQ can't OOM the peek/replay in one shot. */
     private static final int MAX_PEEK = 500;
@@ -177,41 +214,174 @@ public class DlqService {
     // ------------------------------------------------------------------
 
     /**
-     * Republish DLQ record(s) onto their source topic so the original consumer
-     * re-processes them.
+     * Re-drive DLQ record(s): send each back to its source topic, or — once it has
+     * exhausted {@link #MAX_REPLAY_ATTEMPTS} — to the terminal {@code <topic>.parking}
+     * queue so it stops circulating.
      *
-     * @param topic     the {@code *.DLQ} topic
-     * @param partition if non-null together with {@code offset}, replay ONLY that one
-     *                  record; otherwise replay every record currently on the DLQ
-     * @param offset    see {@code partition}
-     * @return how many records were re-emitted (and to where)
+     * <p>Bulk mode (no {@code partition}/{@code offset}) reads with a durable,
+     * offset-committing consumer, so repeated calls drain FORWARD rather than
+     * re-reading the whole DLQ — that consume-once behaviour is what lets the
+     * attempt counter actually climb and eventually park a poison record. Targeted
+     * mode ({@code partition}+{@code offset}) re-drives exactly one record (e.g. a
+     * transient victim after you've fixed the cause) and does not move the group's
+     * committed position.
+     *
+     * @return counts of records re-emitted to source vs. parked
      */
     public ReplayResult replay(String topic, Integer partition, Long offset) {
         requireDlq(topic);
         String sourceTopic = sourceTopicOf(topic);
-
-        // Reuse peek to gather the candidate records (already a non-destructive read).
-        List<DlqMessage> candidates = peek(topic, MAX_PEEK);
+        String parkingTopic = topic + PARKING_SUFFIX;
         boolean single = partition != null && offset != null;
 
         int replayed = 0;
-        for (DlqMessage msg : candidates) {
-            if (single && !(msg.partition() == partition && msg.offset() == offset)) {
-                continue; // targeting one record → skip the rest
+        int parked = 0;
+
+        try (KafkaConsumer<String, String> consumer = newReplayConsumer(single)) {
+            List<TopicPartition> tps = partitionsOf(consumer, topic);
+            if (tps.isEmpty()) {
+                return new ReplayResult(topic, sourceTopic, 0, 0);
             }
-            // Re-send with the ORIGINAL key so the event lands on the same partition
-            // and keeps its per-order ordering. Blocking .get() surfaces send failures.
-            try {
-                kafka.send(sourceTopic, msg.key(), msg.value()).get();
-                replayed++;
-            } catch (Exception e) {
-                throw new IllegalStateException(
-                        "Replay failed for " + topic + "@" + msg.partition() + ":" + msg.offset()
-                                + " → " + sourceTopic + ": " + e.getMessage(), e);
+            consumer.assign(tps);
+            if (single) {
+                consumer.seek(new TopicPartition(topic, partition), offset);
+            } else {
+                seekToCommittedOrBeginning(consumer, tps);
+            }
+            Map<TopicPartition, Long> end = consumer.endOffsets(tps);
+
+            long deadline = System.currentTimeMillis() + 5000;
+            boolean done = false;
+            while (!done && System.currentTimeMillis() < deadline) {
+                ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(300));
+                for (ConsumerRecord<String, String> rec : records) {
+                    if (single && !(rec.partition() == partition && rec.offset() == offset)) {
+                        continue; // targeting one record → ignore the rest
+                    }
+                    if (forward(rec, sourceTopic, parkingTopic)) {
+                        parked++;
+                    } else {
+                        replayed++;
+                    }
+                    if (single) {
+                        done = true;
+                        break;
+                    }
+                }
+                if (!single) {
+                    boolean drained = tps.stream()
+                            .allMatch(tp -> consumer.position(tp) >= end.getOrDefault(tp, 0L));
+                    if (drained) {
+                        done = true;
+                    }
+                }
+            }
+            // Commit ONLY for a bulk drain: that's what makes the next call resume
+            // after these records instead of re-reading them. A targeted single
+            // replay is a manual one-off and must not move the shared group.
+            if (!single) {
+                consumer.commitSync();
             }
         }
-        log.info("Replayed {} record(s) from {} back to {}", replayed, topic, sourceTopic);
-        return new ReplayResult(topic, sourceTopic, replayed);
+
+        log.info("Replay of {}: {} re-emitted to {}, {} parked to {}{}",
+                topic, replayed, sourceTopic, parked, topic + PARKING_SUFFIX,
+                parked > 0 ? " (exhausted " + MAX_REPLAY_ATTEMPTS + " attempts)" : "");
+        return new ReplayResult(topic, sourceTopic, replayed, parked);
+    }
+
+    /**
+     * Forward one DLQ record. Returns true if it was PARKED (attempts exhausted),
+     * false if it was re-emitted to the source topic with an incremented counter.
+     */
+    private boolean forward(ConsumerRecord<String, String> rec, String sourceTopic, String parkingTopic) {
+        int attempts = attemptsOf(rec);
+        try {
+            if (shouldPark(attempts)) {
+                ensureTopic(parkingTopic);   // auto-create is off broker-side; make it on demand
+                List<Header> headers = List.of(
+                        attemptsHeader(attempts),
+                        new RecordHeader(PARKED_REASON_HEADER,
+                                ("exhausted " + MAX_REPLAY_ATTEMPTS + " replay attempts")
+                                        .getBytes(StandardCharsets.UTF_8)));
+                send(parkingTopic, rec.key(), rec.value(), headers);
+                return true;
+            }
+            // Re-emit with attempts+1 and the ORIGINAL key, so it lands on the same
+            // partition (per-order ordering) and the recoverer will carry the higher
+            // count onto the record if it dead-letters again.
+            send(sourceTopic, rec.key(), rec.value(), List.of(attemptsHeader(attempts + 1)));
+            return false;
+        } catch (Exception e) {
+            throw new IllegalStateException(
+                    "Replay failed for " + rec.topic() + "@" + rec.partition() + ":" + rec.offset()
+                            + ": " + e.getMessage(), e);
+        }
+    }
+
+    /** True once a record has been re-driven the maximum number of times. */
+    static boolean shouldPark(int attempts) {
+        return attempts >= MAX_REPLAY_ATTEMPTS;
+    }
+
+    /** Current replay-attempt count on a record (0 if the header is absent/garbage). */
+    private int attemptsOf(ConsumerRecord<String, String> rec) {
+        return parseAttempts(header(rec, REPLAY_ATTEMPTS_HEADER));
+    }
+
+    /** Parse the attempts header value; anything non-numeric counts as 0. */
+    static int parseAttempts(String headerValue) {
+        if (headerValue == null) {
+            return 0;
+        }
+        try {
+            return Math.max(0, Integer.parseInt(headerValue.trim()));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private Header attemptsHeader(int n) {
+        return new RecordHeader(REPLAY_ATTEMPTS_HEADER,
+                Integer.toString(n).getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** Send one record (with headers) to a topic and block on the ack. */
+    private void send(String topic, String key, String value, List<Header> headers) throws Exception {
+        kafka.send(new ProducerRecord<>(topic, null, key, value, headers)).get();
+    }
+
+    /**
+     * Create a topic if it doesn't exist. The broker has auto-create disabled, so
+     * the parking topic must be made explicitly the first time anything is parked.
+     * Idempotent: an already-existing topic is fine.
+     */
+    private void ensureTopic(String name) {
+        try (AdminClient admin = AdminClient.create(kafkaAdmin.getConfigurationProperties())) {
+            admin.createTopics(List.of(new NewTopic(name, 3, (short) 1))).all().get();
+            log.info("Created parking topic {}", name);
+        } catch (Exception e) {
+            if (!(e.getCause() instanceof org.apache.kafka.common.errors.TopicExistsException)) {
+                throw new IllegalStateException("Could not ensure topic " + name + ": " + e.getMessage(), e);
+            }
+        }
+    }
+
+    /** Resume a bulk drain from committed offsets; partitions with none start at the beginning. */
+    private void seekToCommittedOrBeginning(KafkaConsumer<String, String> consumer, List<TopicPartition> tps) {
+        Map<TopicPartition, OffsetAndMetadata> committed = consumer.committed(new HashSet<>(tps));
+        List<TopicPartition> noCommit = new ArrayList<>();
+        for (TopicPartition tp : tps) {
+            OffsetAndMetadata om = committed.get(tp);
+            if (om != null) {
+                consumer.seek(tp, om.offset());
+            } else {
+                noCommit.add(tp);
+            }
+        }
+        if (!noCommit.isEmpty()) {
+            consumer.seekToBeginning(noCommit);
+        }
     }
 
     // ------------------------------------------------------------------
@@ -247,6 +417,24 @@ public class DlqService {
             tps.add(new TopicPartition(topic, info.partition()));
         }
         return tps;
+    }
+
+    /**
+     * Consumer for replay. Bulk drains use the fixed {@link #REPLAY_GROUP} so their
+     * committed offsets persist across calls (consume-once); a targeted single
+     * replay uses a random group because it deliberately doesn't move that position.
+     */
+    private KafkaConsumer<String, String> newReplayConsumer(boolean single) {
+        Map<String, Object> cfg = kafkaAdmin.getConfigurationProperties();
+        Properties props = new Properties();
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, cfg.get("bootstrap.servers"));
+        props.put(ConsumerConfig.GROUP_ID_CONFIG,
+                single ? "dlq-replay-single-" + UUID.randomUUID() : REPLAY_GROUP);
+        props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
+        return new KafkaConsumer<>(props);
     }
 
     /** A throwaway consumer for observing: random group, no auto-commit, string (de)ser. */
@@ -294,7 +482,12 @@ public class DlqService {
             long timestamp) {
     }
 
-    /** Outcome of a replay call. */
-    public record ReplayResult(String dlqTopic, String sourceTopic, int replayed) {
+    /**
+     * Outcome of a replay call.
+     *
+     * @param replayed records re-emitted to the source topic (attempts remaining)
+     * @param parked   records quarantined to {@code <topic>.parking} (attempts exhausted)
+     */
+    public record ReplayResult(String dlqTopic, String sourceTopic, int replayed, int parked) {
     }
 }
