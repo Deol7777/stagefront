@@ -1,7 +1,7 @@
 # Flash-Sale Ticketing Saga Platform — task runner
 # Infra targets use docker-compose; build/run targets use the Maven wrapper.
 
-.PHONY: up up-core obs trace lag kafka-ui down stop seed chaos logs ps help \
+.PHONY: up up-core obs trace grafana lag kafka-ui down stop seed chaos logs ps help \
         build test install run-order run-inventory run-payment run-notification stop-services \
         poison dlq dlq-peek gateway-fail gateway-ok cb-state \
         cache-stats cache-get cache-redis check up-apps down-apps build-images
@@ -68,6 +68,9 @@ obs: ## start observability on top (Prometheus :9090, Grafana :3000, OTel collec
 
 trace: ## open the Jaeger UI (traces of the saga)
 	open http://localhost:16686
+
+grafana: ## open the provisioned saga dashboard in Grafana
+	open "http://localhost:3000/d/ticketing-saga"
 
 # Consumer-group lag, straight from Prometheus. Non-zero and GROWING means
 # consumers can't keep up; non-zero and shrinking is just a burst draining.

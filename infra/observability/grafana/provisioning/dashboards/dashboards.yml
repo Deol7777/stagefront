@@ -1,0 +1,20 @@
+# Auto-provision dashboards from a folder baked into the image mount.
+#
+# Grafana scans `options.path` for *.json dashboards on startup and keeps them in
+# sync. This file itself is yaml, so it's ignored by the dashboard scanner. The
+# JSON lives alongside it (this whole provisioning dir is mounted read-only in
+# docker-compose), so no extra volume is needed.
+apiVersion: 1
+
+providers:
+  - name: ticketing
+    orgId: 1
+    folder: Ticketing
+    type: file
+    disableDeletion: false
+    # allowUiUpdates: edits in the UI are allowed but get overwritten on restart —
+    # the JSON on disk is the source of truth, same principle as the event catalog.
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false
