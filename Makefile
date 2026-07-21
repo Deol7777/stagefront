@@ -4,7 +4,7 @@
 .PHONY: up up-core obs trace lag kafka-ui down stop seed chaos logs ps help \
         build test install run-order run-inventory run-payment run-notification stop-services \
         poison dlq dlq-peek gateway-fail gateway-ok cb-state \
-        cache-stats cache-get cache-redis check
+        cache-stats cache-get cache-redis check up-apps down-apps build-images
 
 help: ## list targets
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -73,6 +73,28 @@ trace: ## open the Jaeger UI (traces of the saga)
 # consumers can't keep up; non-zero and shrinking is just a burst draining.
 lag: ## show Kafka consumer-group lag per group/topic
 	@python3 infra/observability/lag.py
+
+# ---- Containerised services (the `apps` compose profile) ----
+#
+# The default dev loop runs services on the HOST (`make run-*`) — faster restarts
+# and a debugger. These targets are for running the whole system self-contained,
+# no host JDK needed. Same ports either way (8081-8084), so don't run both.
+
+APPS := order-service inventory-service payment-service notification-service
+
+# Name the four services explicitly. `docker compose --profile apps up` without
+# them would ALSO start every non-profiled service (schema-registry, kafka-ui,
+# the whole observability stack) — profiles add to the default set, they don't
+# replace it.
+up-apps: ## build + start the four services as containers (needs infra: make up-core)
+	docker compose --profile apps up -d --build $(APPS)
+	@echo "services starting as containers on 8081-8084 (docker compose logs -f)"
+
+down-apps: ## stop the containerised services (leaves infra running)
+	docker compose --profile apps rm -sf $(APPS)
+
+build-images: ## build the four service images without starting them
+	docker compose --profile apps build $(APPS)
 
 kafka-ui: ## start Kafka UI to browse topics/messages/lag (http://localhost:8085)
 	docker compose up -d kafka-ui

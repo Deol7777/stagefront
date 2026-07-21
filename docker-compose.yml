@@ -85,7 +85,10 @@ services:
   schema-registry:
     image: apicurio/apicurio-registry-mem:2.5.11.Final
     ports:
-      - "8081:8080"
+      # 8086, NOT 8081 — order-service owns 8081 (host runs and the `apps`
+      # profile both bind it). This collided silently until the services were
+      # containerised, because the registry is rarely started.
+      - "8086:8080"
     depends_on:
       kafka:
         condition: service_healthy
@@ -207,6 +210,96 @@ services:
     ports: ["3000:3000"]
     depends_on:
       - prometheus
+
+  # ---- The four services, containerised ------------------------------------
+  #
+  # All under the `apps` profile, so they do NOT start with `docker compose up`.
+  # Default dev loop stays: infra in Docker, services on the host via `make run-*`
+  # (fast restarts, debugger attach, no image rebuild per edit). Start these with
+  # `make up-apps` when you want the whole system self-contained — no host JDK.
+  #
+  # Config differences from running on the host, all via env:
+  #   - Kafka is kafka:9094 (in-network listener), not localhost:9092
+  #   - Postgres is the container name + internal port 5432, not localhost:543x
+  #   - OTLP goes to otel-collector:4318, not localhost:4318
+  # The application.yml defaults cover the host case; these override for compose.
+
+  order-service:
+    profiles: ["apps"]
+    build:
+      context: .
+      args:
+        SERVICE: order-service
+    ports: ["8081:8080"]
+    environment:
+      SERVER_PORT: "8080"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9094
+      ORDER_DB_URL: jdbc:postgresql://postgres-order:5432/order_db
+      ORDER_DB_USER: order
+      ORDER_DB_PASSWORD: changeme
+      OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+      # The invariant checker calls the other services; in-network names here.
+      SERVICES_INVENTORY_BASE_URL: http://inventory-service:8080
+      SERVICES_PAYMENT_BASE_URL: http://payment-service:8080
+    depends_on:
+      kafka: {condition: service_healthy}
+      postgres-order: {condition: service_healthy}
+
+  inventory-service:
+    profiles: ["apps"]
+    build:
+      context: .
+      args:
+        SERVICE: inventory-service
+    ports: ["8082:8080"]
+    environment:
+      SERVER_PORT: "8080"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9094
+      INVENTORY_DB_URL: jdbc:postgresql://postgres-inventory:5432/inventory_db
+      INVENTORY_DB_USER: inventory
+      INVENTORY_DB_PASSWORD: changeme
+      REDIS_URL: redis://redis:6379
+      OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+    depends_on:
+      kafka: {condition: service_healthy}
+      postgres-inventory: {condition: service_healthy}
+      redis: {condition: service_started}
+
+  payment-service:
+    profiles: ["apps"]
+    build:
+      context: .
+      args:
+        SERVICE: payment-service
+    ports: ["8083:8080"]
+    environment:
+      SERVER_PORT: "8080"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9094
+      PAYMENT_DB_URL: jdbc:postgresql://postgres-payment:5432/payment_db
+      PAYMENT_DB_USER: payment
+      PAYMENT_DB_PASSWORD: changeme
+      OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+    depends_on:
+      kafka: {condition: service_healthy}
+      postgres-payment: {condition: service_healthy}
+
+  notification-service:
+    profiles: ["apps"]
+    build:
+      context: .
+      args:
+        SERVICE: notification-service
+    ports: ["8084:8080"]
+    environment:
+      SERVER_PORT: "8080"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9094
+      NOTIFICATION_DB_URL: jdbc:postgresql://postgres-notification:5432/notification_db
+      NOTIFICATION_DB_USER: notification
+      NOTIFICATION_DB_PASSWORD: changeme
+      OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+    depends_on:
+      kafka: {condition: service_healthy}
+      postgres-notification: {condition: service_healthy}
 
 volumes:
   kafka-data:

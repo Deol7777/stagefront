@@ -1,0 +1,26 @@
+# Keep the build context small and the layer cache stable.
+#
+# Everything here would otherwise be shipped to the Docker daemon on every build.
+# target/ especially matters: host build output would both bloat the context and
+# invalidate cached layers on every local `mvn` run, even when no source changed.
+
+target/
+**/target/
+.git
+.gitignore
+.idea
+.vscode
+*.iml
+
+# Docs and dashboards are not part of any service image.
+docs/
+dashboard/
+*.md
+
+# Local env / infra config — the container gets its config from compose.
+.env
+infra/
+
+# Scratch
+*.log
+.DS_Store
